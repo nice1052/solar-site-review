@@ -1,0 +1,971 @@
+<title>솔라 부지진단</title>
+<style>
+:root{
+  --bg:#F6F7F4;
+  --surface:#FFFFFF;
+  --surface-2:#EFF2ED;
+  --ink:#1B231F;
+  --muted:#5C6B62;
+  --line:#DCE3DA;
+  --accent:#D97F2C;
+  --accent-ink:#5A3410;
+  --ok-bg:#E4F2E8; --ok-ink:#1F7A45;
+  --warn-bg:#FBF0DD; --warn-ink:#9C6A0C;
+  --bad-bg:#FBEAE7; --bad-ink:#B03A2E;
+  --neutral-bg:#EEF1EC; --neutral-ink:#5C6B62;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --sans: 'Noto Sans KR', -apple-system, sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#141815;
+    --surface:#1D2320;
+    --surface-2:#242B26;
+    --ink:#E7ECE5;
+    --muted:#9AA79D;
+    --line:#313A34;
+    --accent:#E89A4B;
+    --accent-ink:#2A1A0A;
+    --ok-bg:#173226; --ok-ink:#6FCB93;
+    --warn-bg:#332B14; --warn-ink:#E0AC4C;
+    --bad-bg:#3A1E1B; --bad-ink:#EE8A7B;
+    --neutral-bg:#242B26; --neutral-ink:#9AA79D;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141815;
+  --surface:#1D2320;
+  --surface-2:#242B26;
+  --ink:#E7ECE5;
+  --muted:#9AA79D;
+  --line:#313A34;
+  --accent:#E89A4B;
+  --accent-ink:#2A1A0A;
+  --ok-bg:#173226; --ok-ink:#6FCB93;
+  --warn-bg:#332B14; --warn-ink:#E0AC4C;
+  --bad-bg:#3A1E1B; --bad-ink:#EE8A7B;
+  --neutral-bg:#242B26; --neutral-ink:#9AA79D;
+}
+*{box-sizing:border-box;}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.5;padding-inline:16px;padding-block:16px;}
+h1,h2,h3{font-family:var(--sans);font-weight:900;letter-spacing:-0.01em;text-wrap:balance;margin:0;}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums;}
+.wrap{max-width:1080px;margin:0 auto;}
+header.top{display:flex;flex-direction:column;gap:4px;margin-bottom:18px;}
+header.top .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);}
+header.top h1{font-size:26px;}
+header.top p{color:var(--muted);font-size:13.5px;margin:2px 0 0;}
+.searchbar{position:relative;margin:18px 0 6px;}
+.searchbar input{
+  width:100%;font-size:15px;padding:13px 46px 13px 16px;border-radius:12px;border:1.5px solid var(--line);
+  background:var(--surface);color:var(--ink);font-family:var(--sans);
+}
+.searchbar input:focus{outline:2px solid var(--accent);outline-offset:1px;}
+.searchbar .icon{position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:16px;pointer-events:none;}
+.dropdown{
+  position:absolute;left:0;right:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--line);
+  border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.12);z-index:20;max-height:320px;overflow:auto;
+}
+.dropdown .item{display:flex;gap:10px;align-items:flex-start;padding:11px 14px;cursor:pointer;border-bottom:1px solid var(--line);}
+.dropdown .item:last-child{border-bottom:none;}
+.dropdown .item:hover{background:var(--surface-2);}
+.tag{font-family:var(--mono);font-size:10.5px;padding:2px 7px;border-radius:6px;background:var(--neutral-bg);color:var(--neutral-ink);flex:none;margin-top:2px;letter-spacing:.02em;}
+.tag.road{background:var(--ok-bg);color:var(--ok-ink);}
+.dropdown .addrtext{font-size:13.5px;}
+.hint{color:var(--muted);font-size:12px;margin-top:6px;}
+#status{margin:14px 0;font-size:13.5px;color:var(--muted);}
+#status.err{color:var(--bad-ink);}
+.hidden{display:none!important;}
+
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0;}
+@media (max-width:640px){.metrics{grid-template-columns:repeat(2,1fr);}}
+.metric{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 14px 12px;}
+.metric .lbl{font-size:11px;color:var(--muted);letter-spacing:.04em;}
+.metric .val{font-family:var(--mono);font-size:22px;font-weight:700;margin-top:4px;}
+.metric .val .unit{font-size:12px;color:var(--muted);font-weight:400;margin-left:3px;}
+.metric.accent{background:linear-gradient(155deg,var(--accent),color-mix(in srgb, var(--accent) 70%, var(--ink) 15%));}
+.metric.accent .lbl,.metric.accent .val{color:var(--accent-ink);}
+
+.layout{display:grid;grid-template-columns:230px 1fr;gap:16px;align-items:start;}
+@media (max-width:760px){.layout{grid-template-columns:1fr;}}
+.rail{display:flex;flex-direction:column;gap:8px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 8px);}
+@media (max-width:760px){.rail{position:static;display:grid;grid-template-columns:repeat(2,1fr);gap:8px;}}
+.chip{display:flex;flex-direction:column;gap:2px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;}
+.chip .t{font-size:12.5px;font-weight:700;}
+.chip .s{display:inline-flex;align-self:flex-start;font-size:11px;padding:2px 8px;border-radius:999px;margin-top:3px;font-weight:700;}
+.chip .hint{font-size:10.5px;color:var(--muted);margin-top:5px;line-height:1.4;}
+.zonenote{font-size:11.5px;color:var(--muted);margin-top:4px;padding-left:2px;line-height:1.5;}
+.legend{font-size:11px;color:var(--muted);margin-bottom:8px;}
+.s-ok{background:var(--ok-bg);color:var(--ok-ink);}
+.s-warn{background:var(--warn-bg);color:var(--warn-ink);}
+.s-bad{background:var(--bad-bg);color:var(--bad-ink);}
+.s-neutral{background:var(--neutral-bg);color:var(--neutral-ink);}
+
+.cards{display:flex;flex-direction:column;gap:14px;}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 18px 18px;}
+.card h3{font-size:15px;display:flex;align-items:center;gap:8px;}
+.card h3 .n{font-family:var(--mono);color:var(--accent);font-size:12px;}
+.card .desc{color:var(--muted);font-size:12.5px;margin:4px 0 12px;}
+.kvgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;}
+@media (max-width:520px){.kvgrid{grid-template-columns:1fr;}}
+.kv{display:flex;justify-content:space-between;gap:10px;border-bottom:1px dashed var(--line);padding-bottom:6px;font-size:13.5px;}
+.kv .k{color:var(--muted);}
+.kv .v{font-weight:600;text-align:right;}
+table.zonelist{width:100%;border-collapse:collapse;font-size:13px;}
+table.zonelist th{text-align:left;color:var(--muted);font-weight:600;font-size:11.5px;padding:6px 8px;border-bottom:1px solid var(--line);}
+table.zonelist td{padding:8px 8px;border-bottom:1px solid var(--line);vertical-align:top;}
+table.zonelist tr:last-child td{border-bottom:none;}
+.overflow{overflow-x:auto;}
+
+.settings{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px;padding:12px;background:var(--surface-2);border-radius:10px;}
+@media (max-width:760px){.settings{grid-template-columns:repeat(2,1fr);}}
+.field{display:flex;flex-direction:column;gap:4px;}
+.field label{font-size:10.5px;color:var(--muted);letter-spacing:.02em;}
+.field input,.field select{font-family:var(--mono);font-size:13px;padding:6px 8px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--ink);width:100%;}
+
+#mapview{width:100%;height:320px;border-radius:10px;margin-bottom:12px;background:var(--surface-2);}
+#mapview .leaflet-control-attribution{font-size:9px;}
+.maplabel{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;}
+.maplabel .lbl{font-size:11px;color:var(--muted);letter-spacing:.02em;}
+.maplabel .src{font-size:10px;color:var(--muted);}
+svg.simsvg{width:100%;height:auto;background:var(--surface-2);border-radius:10px;display:block;}
+.simresult{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;}
+.simresult .box{flex:1;min-width:150px;background:var(--surface-2);border-radius:10px;padding:10px 12px;}
+.simresult .box .lbl{font-size:11px;color:var(--muted);}
+.simresult .box .val{font-family:var(--mono);font-weight:700;font-size:17px;margin-top:2px;}
+.note{font-size:11.5px;color:var(--muted);margin-top:10px;line-height:1.55;}
+
+.lawbox{background:var(--warn-bg);border:1px solid color-mix(in srgb, var(--warn-ink) 30%, transparent);border-radius:10px;padding:12px 14px;}
+.lawbox-title{font-size:13px;font-weight:700;color:var(--warn-ink);}
+.lawbox .kv{border-bottom:1px dashed color-mix(in srgb, var(--warn-ink) 25%, transparent);}
+.lawbox .note{color:var(--warn-ink);opacity:.85;}
+
+.kepco{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:8px;}
+.btn{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;padding:9px 14px;border-radius:9px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;text-decoration:none;}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent;}
+.btn:hover{filter:brightness(0.97);}
+.copytext{font-family:var(--mono);font-size:12.5px;background:var(--neutral-bg);padding:8px 10px;border-radius:8px;flex:1;min-width:220px;}
+
+footer{margin-top:24px;color:var(--muted);font-size:11px;line-height:1.6;border-top:1px solid var(--line);padding-top:14px;}
+a{color:var(--accent);}
+::selection{background:var(--accent);color:var(--accent-ink);}
+</style>
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+<div class="wrap">
+
+  <header class="top">
+    <div class="eyebrow">SOLAR SITE ONE-POINT CHECK</div>
+    <h1>솔라 부지진단</h1>
+    <p>주소 하나로 지목·용도지역·필지 형상을 확인하고, 모듈 배치 시뮬레이션으로 지상형 설치 최대 용량을 추정합니다.</p>
+  </header>
+
+  <div class="searchbar">
+    <input id="addrInput" type="text" placeholder="지번 또는 도로명 주소를 입력하세요 (예: 전남 무안군 무안읍 성동리 56-4)" autocomplete="off">
+    <span class="icon">⌕</span>
+    <div id="dropdown" class="dropdown hidden"></div>
+  </div>
+  <div class="hint">브이월드(VWorld) 공간정보 오픈API 기반 · 지상형(地上型) 부지 검토용</div>
+
+  <div id="status"></div>
+
+  <div id="results" class="hidden">
+
+    <div class="metrics" id="metricsRow"></div>
+
+    <div class="layout">
+      <div class="rail" id="checklistRail"></div>
+
+      <div class="cards">
+
+        <div class="card">
+          <h3><span class="n">01</span> 토지 정보</h3>
+          <p class="desc">토지대장·연속지적도 기준 필지 기본 정보</p>
+          <div class="kvgrid" id="landInfoGrid"></div>
+        </div>
+
+        <div class="card">
+          <h3><span class="n">02</span> 용도지역 · 지구 분석</h3>
+          <p class="desc">해당 필지에 걸쳐 있는 용도지역/지구 목록 — 실제 건축·설치 가능 여부는 관할 지자체 확인이 필요합니다.</p>
+          <div class="legend">※ 포함: 필지 전체가 해당 구역 안에 있음 · 저촉: 필지 경계선이 구역과 겹쳐 있어 필지의 일부만 해당될 수 있음</div>
+          <div class="overflow">
+            <table class="zonelist">
+              <thead><tr><th>구분</th><th>포함 여부</th><th>등록일</th></tr></thead>
+              <tbody id="zoneTableBody"></tbody>
+            </table>
+          </div>
+          <div id="zoneEmpty" class="note hidden">등록된 용도지역/지구 정보가 없습니다.</div>
+          <div id="zoneExplain"></div>
+        </div>
+
+        <div class="card">
+          <h3><span class="n">03</span> 개별공시지가 · 토지특성</h3>
+          <p class="desc">브이월드 부동산종합정보 연계 데이터 (공용시설지 등 일부 필지는 개별공시지가·토지특성정보가 미공시일 수 있습니다)</p>
+          <div class="kvgrid" id="extraInfoGrid"></div>
+
+          <div class="settings" id="farmlandSettings" style="margin-top:14px;grid-template-columns:repeat(3,1fr);">
+            <div class="field"><label>전용면적(㎡)</label><input id="farmlandArea" type="number" step="1"></div>
+            <div class="field">
+              <label>농업진흥지역 여부</label>
+              <select id="farmlandZone">
+                <option value="auto">자동감지</option>
+                <option value="in">진흥지역 안(30%)</option>
+                <option value="out">진흥지역 밖(20%)</option>
+              </select>
+            </div>
+            <div class="field"><label>㎡당 상한(원)</label><input id="farmlandCap" type="number" value="50000" step="1000"></div>
+          </div>
+          <div class="kvgrid" id="farmlandGrid"></div>
+          <div class="note" id="farmlandNote"></div>
+        </div>
+
+        <div class="card">
+          <h3><span class="n">04</span> 필지 형상 · 모듈 배치 시뮬레이션</h3>
+          <p class="desc">필지의 최소 외곽 사각형(회전 보정) 기준 개략 배치입니다. 실제 배치는 정밀 실측·설계 시 달라질 수 있습니다.</p>
+
+          <div class="maplabel"><span class="lbl">위성사진 — 필지 경계 오버레이</span><span class="src">브이월드 위성영상</span></div>
+          <div id="mapview"></div>
+
+          <div class="settings">
+            <div class="field">
+              <label>모듈 규격</label>
+              <select id="modulePreset">
+                <option value="custom">직접입력</option>
+                <option value="650">650W · 2465×1134mm</option>
+                <option value="560" selected>560W · 2278×1134mm</option>
+              </select>
+            </div>
+            <div class="field"><label>정격출력(W)</label><input id="moduleWatt" type="number" value="560" step="5"></div>
+            <div class="field"><label>장변(mm)</label><input id="moduleLong" type="number" value="2278" step="1"></div>
+            <div class="field"><label>단변(mm)</label><input id="moduleShort" type="number" value="1134" step="1"></div>
+            <div class="field">
+              <label>거치 단수</label>
+              <select id="stackCount"><option value="1">1단</option><option value="2" selected>2단</option><option value="3">3단</option></select>
+            </div>
+            <div class="field"><label>경사각(°)</label><input id="tiltAngle" type="number" value="30" min="0" max="45"></div>
+            <div class="field"><label>경계 이격(m)</label><input id="setbackM" type="number" value="3" min="0" max="20" step="0.5"></div>
+            <div class="field"><label>가용면적비율(%)</label><input id="usableRatio" type="number" value="75" min="30" max="100" step="1"></div>
+          </div>
+
+          <svg id="simSvg" class="simsvg" viewBox="0 0 400 300"></svg>
+
+          <div class="simresult">
+            <div class="box"><div class="lbl">실제 배치 모듈수(필지 모양 반영)</div><div class="val mono" id="resModulesLayout">-</div></div>
+            <div class="box"><div class="lbl">면적기준 참고치(상한)</div><div class="val mono" id="resModulesArea">-</div></div>
+            <div class="box"><div class="lbl">예상 최대 용량</div><div class="val mono" id="resCapacity">-</div></div>
+            <div class="box"><div class="lbl">설치 테이블 수 × 단수</div><div class="val mono" id="resGrid">-</div></div>
+          </div>
+          <div class="note" id="simNote"></div>
+        </div>
+
+        <div class="card">
+          <h3><span class="n">05</span> 선로(계통) 여유용량 확인</h3>
+          <p class="desc">배전선로 여유용량은 한전(KEPCO) 로그인 기반 시스템에서만 실시간 조회가 가능합니다. 아래 정보를 복사해 한전 사이트에서 직접 확인하세요.</p>
+          <div class="copytext" id="addrCopyText">-</div>
+          <div class="kepco">
+            <button class="btn" id="copyAddrBtn" type="button">주소 복사</button>
+            <a class="btn primary" id="kepcoLink" href="https://online.kepco.co.kr/EWM092D00" target="_blank" rel="noopener">한전 배전선로 여유용량 조회 열기 ↗</a>
+          </div>
+          <div class="note">경로: 한전 사이버지점 → 자주찾는서비스 → 배전선로 여유용량 조회. 변전소/D/L 단위 여유용량과 실제 계통접속 가능 여부는 한전 담당 지사 확인이 최종 기준입니다.</div>
+        </div>
+
+        <div class="card">
+          <h3><span class="n">06</span> 이격거리 조례 확인</h3>
+          <p class="desc">태양광 이격거리는 시·군·구 자치법규로 정해져 왔으나, 2026년 9월 18일부터 국가 상한이 새로 적용됩니다.</p>
+
+          <div class="lawbox">
+            <div class="lawbox-title">⚖ 재생에너지 이격거리 규제 상한 (2026.9.18 시행)</div>
+            <div class="kvgrid" style="margin-top:8px;">
+              <div class="kv"><span class="k">태양광 · 주거지역 기준</span><span class="v">최대 200m 이내에서 지자체 조례 결정</span></div>
+              <div class="kv"><span class="k">태양광 · 도로 기준</span><span class="v">이격거리 규제 신설 금지(폐지)</span></div>
+              <div class="kv"><span class="k">풍력 · 주거지역(5호 이상) 기준</span><span class="v">최대 1,500m 이내</span></div>
+              <div class="kv"><span class="k">풍력 · 도로 기준</span><span class="v">최대 500m 이내</span></div>
+              <div class="kv"><span class="k">풍력 · 하한</span><span class="v">발전설비 높이의 2배</span></div>
+            </div>
+            <div class="note">2026년 8월 11일 국무회의에서 「신에너지 및 재생에너지 개발·이용·보급 촉진법 시행령」 개정안이 의결되어, 그간 지자체별로 100~1000m(태양광)·100~2000m(풍력)까지 벌어졌던 조례상 이격거리에 국가 차원의 상한이 도입됩니다. 기존 조례가 이 상한을 넘는 경우 시행일 이후 상한까지만 적용됩니다 — 실제 개정 조례 반영 여부는 관할 지자체에 확인하세요.</div>
+          </div>
+
+          <p class="desc" style="margin-top:14px;">개별 지자체 조례(구체 수치·예외 조항)는 아래 검색어로 국가법령정보센터에서 직접 확인하세요.</p>
+          <div class="copytext" id="ordinanceCopyText">-</div>
+          <div class="kepco">
+            <button class="btn" id="copyOrdinanceBtn" type="button">검색어 복사</button>
+            <a class="btn" href="https://www.law.go.kr/" target="_blank" rel="noopener">국가법령정보센터 열기 ↗</a>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    데이터 출처: 국토교통부 브이월드(V-World) 공간정보 오픈플랫폼 (연속지적도 LP_PA_CBND_BUBUN, 토지임야정보 ladfrlList, 토지이용계획 getLandUseAttr). 본 도구의 계산 결과는 사업성·인허가 판단을 위한 참고용 추정치이며, 실제 설계·인허가·계통연계는 관할 기관 확인 및 정밀 실측을 거쳐야 합니다.
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var VWORLD_KEY = "FF411F7C-F8B2-459F-BD21-F05A32296594";
+
+  // ---------- JSONP ----------
+  function jsonp(url, timeoutMs){
+    timeoutMs = timeoutMs || 9000;
+    return new Promise(function(resolve, reject){
+      var cbName = "cb_" + Math.random().toString(36).slice(2) + Date.now();
+      var script = document.createElement('script');
+      var done = false;
+      var timer = setTimeout(function(){
+        if(done) return; done = true; cleanup(); reject(new Error('timeout'));
+      }, timeoutMs);
+      function cleanup(){ clearTimeout(timer); try{ delete window[cbName]; }catch(e){ window[cbName]=undefined; } if(script.parentNode) script.parentNode.removeChild(script); }
+      window[cbName] = function(data){ if(done) return; done = true; cleanup(); resolve(data); };
+      script.onerror = function(){ if(done) return; done = true; cleanup(); reject(new Error('network')); };
+      script.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'callback=' + cbName;
+      document.head.appendChild(script);
+    });
+  }
+
+  function vworldSearch(query, category){
+    var url = "https://api.vworld.kr/req/search?service=search&request=search&version=2.0&query=" +
+      encodeURIComponent(query) + "&type=address&category=" + category + "&format=json&size=6&key=" + VWORLD_KEY;
+    return jsonp(url);
+  }
+  function vworldLadfrl(pnu){
+    return jsonp("https://api.vworld.kr/ned/data/ladfrlList?key=" + VWORLD_KEY + "&domain=&format=json&pnu=" + pnu);
+  }
+  function vworldLandUse(pnu){
+    return jsonp("https://api.vworld.kr/ned/data/getLandUseAttr?key=" + VWORLD_KEY + "&domain=&format=json&numOfRows=100&pnu=" + pnu);
+  }
+  function vworldParcelGeom(pnu){
+    return jsonp("https://api.vworld.kr/req/data?service=data&version=2.0&request=GetFeature&format=json&data=LP_PA_CBND_BUBUN&attrFilter=pnu:=:" + pnu + "&geometry=true&attribute=true&crs=EPSG:4326&key=" + VWORLD_KEY);
+  }
+  function vworldLandCharYear(pnu, year){
+    return jsonp("https://api.vworld.kr/ned/data/getLandCharacteristics?key=" + VWORLD_KEY + "&domain=&format=json&pnu=" + pnu + "&stdrYear=" + year);
+  }
+  function vworldLandPriceYear(pnu, year){
+    return jsonp("https://api.vworld.kr/ned/data/getIndvdLandPriceAttr?key=" + VWORLD_KEY + "&domain=&format=json&pnu=" + pnu + "&stdrYear=" + year);
+  }
+  // these two datasets are published per-year and are missing for some parcels (e.g. certain
+  // public-facility land) regardless of API permission, so step back through recent years
+  // until a year returns data, then give up gracefully.
+  function tryYears(fn, pnu, years){
+    var i = 0;
+    function attempt(){
+      if(i >= years.length) return Promise.resolve(null);
+      var y = years[i++];
+      return fn(pnu, y).then(function(data){
+        var ok = data && Object.keys(data).some(function(k){
+          return data[k] && data[k].field && data[k].field.length;
+        });
+        if(ok) return data;
+        return attempt();
+      }).catch(attempt);
+    }
+    return attempt();
+  }
+  function vworldLandChar(pnu){ return tryYears(vworldLandCharYear, pnu, [2025,2024,2023,2022]); }
+  function vworldLandPrice(pnu){ return tryYears(vworldLandPriceYear, pnu, [2025,2024,2023,2022]); }
+
+  // ---------- geometry helpers ----------
+  function polygonAreaXY(points){
+    var a = 0;
+    for(var i=0;i<points.length;i++){
+      var p1=points[i], p2=points[(i+1)%points.length];
+      a += p1[0]*p2[1] - p2[0]*p1[1];
+    }
+    return Math.abs(a)/2;
+  }
+  function toXY(lon, lat, lon0, lat0){
+    var mPerDegLat = 111320;
+    var mPerDegLon = 111320 * Math.cos(lat0 * Math.PI/180);
+    return [ (lon-lon0)*mPerDegLon, (lat-lat0)*mPerDegLat ];
+  }
+  function convexHull(points){
+    var pts = points.slice().sort(function(a,b){ return a[0]-b[0] || a[1]-b[1]; });
+    function cross(o,a,b){ return (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0]); }
+    var lower = [];
+    for(var i=0;i<pts.length;i++){
+      var p = pts[i];
+      while(lower.length>=2 && cross(lower[lower.length-2], lower[lower.length-1], p) <= 0) lower.pop();
+      lower.push(p);
+    }
+    var upper = [];
+    for(var j=pts.length-1;j>=0;j--){
+      var p2 = pts[j];
+      while(upper.length>=2 && cross(upper[upper.length-2], upper[upper.length-1], p2) <= 0) upper.pop();
+      upper.push(p2);
+    }
+    upper.pop(); lower.pop();
+    return lower.concat(upper);
+  }
+  function minAreaRect(hull){
+    var best = {area: Infinity, w:0, h:0, angle:0};
+    var n = hull.length;
+    if(n<3) return best;
+    for(var i=0;i<n;i++){
+      var p1 = hull[i], p2 = hull[(i+1)%n];
+      var angle = Math.atan2(p2[1]-p1[1], p2[0]-p1[0]);
+      var cosA = Math.cos(-angle), sinA = Math.sin(-angle);
+      var minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+      for(var k=0;k<hull.length;k++){
+        var p = hull[k];
+        var rx = p[0]*cosA - p[1]*sinA;
+        var ry = p[0]*sinA + p[1]*cosA;
+        if(rx<minX) minX=rx; if(rx>maxX) maxX=rx;
+        if(ry<minY) minY=ry; if(ry>maxY) maxY=ry;
+      }
+      var w = maxX-minX, h = maxY-minY, area = w*h;
+      if(area < best.area) best = {area:area, w:w, h:h, angle:angle, minX:minX,maxX:maxX,minY:minY,maxY:maxY};
+    }
+    return best;
+  }
+  function rotateAll(points, angle){
+    var cosA = Math.cos(-angle), sinA = Math.sin(-angle);
+    return points.map(function(p){ return [ p[0]*cosA - p[1]*sinA, p[0]*sinA + p[1]*cosA ]; });
+  }
+
+  // ---------- number formatting ----------
+  function fmt(n, digits){ if(n===null||n===undefined||isNaN(n)) return "-"; return n.toLocaleString('ko-KR', {maximumFractionDigits: digits===undefined?0:digits}); }
+  function pyeong(sqm){ return sqm/3.305785; }
+
+  // ---------- state ----------
+  var state = { pnu:null, point:null, addressText:null, polygonPtsLonLat:null, ladfrl:null, landUse:[], parcelProps:null, projected:null, rect:null, areaM2:0 };
+
+  // ---------- satellite map (VWorld WMTS + Leaflet) ----------
+  var leafletMap = null, leafletPolygon = null, leafletMarker = null;
+  function updateMap(){
+    var el = document.getElementById('mapview');
+    if(!el || typeof L === 'undefined') return;
+    if(!leafletMap){
+      leafletMap = L.map(el, { attributionControl:true, zoomControl:true });
+      L.tileLayer('https://api.vworld.kr/req/wmts/1.0.0/' + VWORLD_KEY + '/Satellite/{z}/{y}/{x}.jpeg', {
+        maxZoom: 19, minZoom: 6,
+        attribution: '© VWorld 위성영상'
+      }).addTo(leafletMap);
+    }
+    if(leafletPolygon){ leafletMap.removeLayer(leafletPolygon); leafletPolygon = null; }
+    if(leafletMarker){ leafletMap.removeLayer(leafletMarker); leafletMarker = null; }
+
+    if(state.polygonPtsLonLat && state.polygonPtsLonLat.length >= 3){
+      var latlngs = state.polygonPtsLonLat.map(function(p){ return [p[1], p[0]]; });
+      leafletPolygon = L.polygon(latlngs, { color:'#E08A2C', weight:3, fillColor:'#E08A2C', fillOpacity:0.22 }).addTo(leafletMap);
+      leafletMap.fitBounds(leafletPolygon.getBounds(), { padding:[28,28], maxZoom:19 });
+    } else if(state.point){
+      leafletMarker = L.circleMarker([state.point.y, state.point.x], { radius:8, color:'#E08A2C', weight:3, fillOpacity:0.5 }).addTo(leafletMap);
+      leafletMap.setView([state.point.y, state.point.x], 18);
+    }
+    setTimeout(function(){ if(leafletMap) leafletMap.invalidateSize(); }, 60);
+  }
+
+  // ---------- DOM refs ----------
+  var addrInput = document.getElementById('addrInput');
+  var dropdown = document.getElementById('dropdown');
+  var statusEl = document.getElementById('status');
+  var resultsEl = document.getElementById('results');
+
+  // ---------- search ----------
+  var searchTimer = null;
+  addrInput.addEventListener('input', function(){
+    var q = addrInput.value.trim();
+    clearTimeout(searchTimer);
+    if(q.length < 2){ dropdown.classList.add('hidden'); return; }
+    searchTimer = setTimeout(function(){ runSearch(q); }, 380);
+  });
+  document.addEventListener('click', function(e){
+    if(!dropdown.contains(e.target) && e.target !== addrInput) dropdown.classList.add('hidden');
+  });
+
+  function runSearch(q){
+    Promise.allSettled([ vworldSearch(q,'road'), vworldSearch(q,'parcel') ]).then(function(results){
+      var items = [];
+      var seen = {};
+      results.forEach(function(r){
+        if(r.status !== 'fulfilled') return;
+        var data = r.value;
+        if(!data || !data.response || data.response.status !== 'OK') return;
+        var arr = (data.response.result && data.response.result.items) || [];
+        arr.forEach(function(it){
+          var key = it.id + '|' + it.address.category;
+          if(seen[key]) return;
+          seen[key] = true;
+          items.push(it);
+        });
+      });
+      renderDropdown(items.slice(0,8));
+    });
+  }
+
+  function renderDropdown(items){
+    if(!items.length){ dropdown.classList.add('hidden'); dropdown.innerHTML=''; return; }
+    dropdown.innerHTML = items.map(function(it, idx){
+      var isRoad = it.address.category === 'road';
+      var text = isRoad ? (it.address.road || it.address.parcel) : (it.address.parcel || it.address.road);
+      var extra = it.address.bldnm ? (' · ' + it.address.bldnm) : '';
+      return '<div class="item" data-idx="'+idx+'"><span class="tag ' + (isRoad?'road':'') + '">' + (isRoad?'도로명':'지번') + '</span>' +
+        '<span class="addrtext">' + escapeHtml(text) + escapeHtml(extra) + '</span></div>';
+    }).join('');
+    dropdown.classList.remove('hidden');
+    Array.prototype.forEach.call(dropdown.querySelectorAll('.item'), function(el){
+      el.addEventListener('click', function(){
+        var idx = +el.getAttribute('data-idx');
+        selectItem(items[idx]);
+      });
+    });
+  }
+
+  function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+  function selectItem(it){
+    dropdown.classList.add('hidden');
+    var isRoad = it.address.category === 'road';
+    var text = isRoad ? (it.address.road || it.address.parcel) : (it.address.parcel || it.address.road);
+    addrInput.value = text;
+    state.pnu = it.id;
+    state.point = { x: parseFloat(it.point.x), y: parseFloat(it.point.y) };
+    state.addressText = text;
+    loadParcel();
+  }
+
+  // ---------- load parcel data ----------
+  function setStatus(msg, isErr){
+    statusEl.textContent = msg || '';
+    statusEl.className = isErr ? 'err' : '';
+  }
+
+  function loadParcel(){
+    resultsEl.classList.add('hidden');
+    setStatus('필지 정보를 조회하는 중입니다…');
+    Promise.allSettled([
+      vworldLadfrl(state.pnu),
+      vworldLandUse(state.pnu),
+      vworldParcelGeom(state.pnu),
+      vworldLandChar(state.pnu),
+      vworldLandPrice(state.pnu)
+    ]).then(function(res){
+      var ladfrlRes = res[0].status==='fulfilled' ? res[0].value : null;
+      var landUseRes = res[1].status==='fulfilled' ? res[1].value : null;
+      var geomRes = res[2].status==='fulfilled' ? res[2].value : null;
+      var landCharRes = res[3].status==='fulfilled' ? res[3].value : null;
+      var landPriceRes = res[4].status==='fulfilled' ? res[4].value : null;
+
+      state.ladfrl = null;
+      if(ladfrlRes && ladfrlRes.ladfrlVOList && ladfrlRes.ladfrlVOList.ladfrlVOList && ladfrlRes.ladfrlVOList.ladfrlVOList.length){
+        state.ladfrl = ladfrlRes.ladfrlVOList.ladfrlVOList[0];
+      }
+      state.landUse = (landUseRes && landUseRes.landUses && landUseRes.landUses.field) || [];
+
+      state.parcelProps = null;
+      state.polygonPtsLonLat = null;
+      if(geomRes && geomRes.response && geomRes.response.status === 'OK'){
+        var feats = geomRes.response.result && geomRes.response.result.featureCollection && geomRes.response.result.featureCollection.features;
+        if(feats && feats.length){
+          var feat = feats[0];
+          state.parcelProps = feat.properties || null;
+          var geom = feat.geometry;
+          var outer = null;
+          if(geom.type === 'Polygon'){ outer = geom.coordinates[0]; }
+          else if(geom.type === 'MultiPolygon'){
+            var best=null, bestN=-1;
+            geom.coordinates.forEach(function(poly){
+              var ring = poly[0];
+              if(ring.length > bestN){ bestN = ring.length; best = ring; }
+            });
+            outer = best;
+          }
+          state.polygonPtsLonLat = outer;
+        }
+      }
+
+      state.extraChar = (landCharRes && landCharRes.landCharacteristicss && landCharRes.landCharacteristicss.field && landCharRes.landCharacteristicss.field[0]) || null;
+      state.extraPrice = (landPriceRes && landPriceRes.indvdLandPrices && landPriceRes.indvdLandPrices.field && landPriceRes.indvdLandPrices.field[0]) || null;
+
+      computeGeometry();
+      resultsEl.classList.remove('hidden');
+      render();
+      setStatus('');
+      updateMap();
+    });
+  }
+
+  // ---------- geometry computation ----------
+  function computeGeometry(){
+    state.projected = null; state.rect = null; state.areaM2 = 0;
+    if(!state.polygonPtsLonLat || state.polygonPtsLonLat.length < 3) return;
+    var lat0 = state.polygonPtsLonLat.reduce(function(s,p){return s+p[1];},0) / state.polygonPtsLonLat.length;
+    var lon0 = state.polygonPtsLonLat.reduce(function(s,p){return s+p[0];},0) / state.polygonPtsLonLat.length;
+    var proj = state.polygonPtsLonLat.map(function(p){ return toXY(p[0], p[1], lon0, lat0); });
+    state.projected = proj;
+    state.areaM2 = polygonAreaXY(proj);
+    var hull = convexHull(proj);
+    state.rect = minAreaRect(hull);
+    state.lat0 = lat0;
+  }
+
+  // ---------- checklist / metrics / cards ----------
+  function chip(title, statusText, cls, hint){
+    return '<div class="chip"><div class="t">'+escapeHtml(title)+'</div><span class="s '+cls+'">'+escapeHtml(statusText)+'</span>'+
+      (hint ? '<div class="hint">'+escapeHtml(hint)+'</div>' : '') + '</div>';
+  }
+
+  // 용도지역/지구 이름별 1줄 설명 — "이게 왜 뜨는지" 바로 이해할 수 있도록
+  var ZONE_EXPLAIN = {
+    '준보전산지': '산지관리법상 "보전산지"가 아닌 산지입니다. 다만 같은 법 제2조는 지목이 전·답·과수원·목장용지인 토지를 산지 정의에서 제외하므로, 지목이 이미 전·답 등으로 바뀌어 있는데도 이 항목이 뜬다면 지적(지목)과 산림청 산지구분도의 갱신 시점이 달라 생긴 불일치일 가능성이 있습니다 — 아래 참고.',
+    '보전산지': '임업·공익 목적으로 보전이 필요한 산지로 지정되어, 개발행위(태양광 포함)가 크게 제한됩니다. (지목이 전·답·과수원·목장용지면 법상 산지 제외 대상이니 아래 참고)',
+    '임업용산지': '보전산지 중 임업 생산 기능 보호가 목적인 구역으로, 산지전용이 엄격히 제한됩니다. (지목이 전·답·과수원·목장용지면 법상 산지 제외 대상이니 아래 참고)',
+    '공익용산지': '보전산지 중 재해방지·자연생태 등 공익 기능 보호가 목적인 구역으로, 원칙적으로 개발이 금지됩니다. (지목이 전·답·과수원·목장용지면 법상 산지 제외 대상이니 아래 참고)',
+    '농업진흥지역': '농지법상 우량농지 보호구역입니다. 농업 외 용도 전용이 엄격히 제한되고, 전용 시 부담금 부과율도 30%로 높습니다.',
+    '가축사육제한구역': '가축사육 시설 신설이 제한되는 구역입니다. 태양광 설치를 직접 막지는 않지만, 지자체 조례상 추가 제한이 있는지 확인이 필요합니다.',
+    '개발제한구역': '그린벨트입니다. 원칙적으로 개발행위가 금지되며, 예외적 허가 절차를 거쳐야 합니다.',
+    '자연환경보전지역': '자연환경 보호가 최우선인 지역으로, 개발행위가 매우 제한적으로만 허용됩니다.',
+    '보전관리지역': '자연환경 보전이 필요하지만 제한적 개발은 가능한 지역으로, 조건에 따라 발전시설 건축이 허용되는 경우가 있습니다.',
+    '생산관리지역': '농림업 생산을 위해 관리가 필요한 지역으로, 일정 요건을 충족하면 개발행위가 가능합니다.',
+    '계획관리지역': '향후 도시지역 편입이 예상되거나 제한적 이용이 가능한 지역으로, 개발행위 허용 범위가 비교적 넓습니다.',
+    '자연녹지지역': '도시지역 내 녹지 보전이 필요한 곳으로, 제한적인 개발행위만 허용됩니다.',
+    '폐기물처리및재활용시설': '폐기물처리시설 관련 도시계획시설 부지로, 해당 용도 외 건축이 제한될 수 있습니다.'
+  };
+  var SANJI_NAMES = {'준보전산지':1,'보전산지':1,'임업용산지':1,'공익용산지':1};
+  var SANJI_EXCLUDED_JIMOK = {'전':1,'답':1,'과수원':1,'목장용지':1};
+  function zoneExplainHtml(zones){
+    var seen = {};
+    var lines = [];
+    var hasSanji = false;
+    zones.forEach(function(z){
+      var name = z.prposAreaDstrcCodeNm;
+      if(name && SANJI_NAMES[name]) hasSanji = true;
+      if(name && ZONE_EXPLAIN[name] && !seen[name]){
+        seen[name] = true;
+        lines.push('<div class="zonenote">· <b>'+escapeHtml(name)+'</b> — '+escapeHtml(ZONE_EXPLAIN[name])+'</div>');
+      }
+    });
+    var jimok = (state.ladfrl && state.ladfrl.lndcgrCodeNm) || (state.extraChar && state.extraChar.lndcgrCodeNm) || '';
+    if(hasSanji && SANJI_EXCLUDED_JIMOK[jimok]){
+      lines.push('<div class="zonenote" style="color:var(--warn-ink);">⚠ 이 필지는 지목이 「'+escapeHtml(jimok)+'」로, 산지관리법 제2조상 산지 정의에서 제외되는 지목입니다. 그런데도 산지구분(준보전산지 등)이 함께 표시되는 건, 지적공부(지목)와 산림청 산지구분도가 서로 별도로 관리·갱신되는 시스템이라 갱신 시차가 있거나(과거 임야 → 산지전용허가 후 지목변경, 산지구분도 미갱신), 정식 산지전용 절차 없이 지목만 변경된 경우일 수 있습니다. 어느 쪽인지는 토지이동(변동)내역·산지전용허가 이력으로 확인되며, 실제 태양광 설치 시 산지전용허가 대상 여부는 관할 시·군·구 산림부서에 반드시 재확인하세요.</div>');
+    }
+    return lines.join('');
+  }
+
+  function render(){
+    var railHtml = '';
+    railHtml += chip('토지유형', state.ladfrl ? (state.ladfrl.lndcgrCodeNm || '확인됨') : '조회 안됨', state.ladfrl ? 's-ok' : 's-warn',
+      '지목이 대·전·답·잡종지 등이면 대체로 가능, 농지·산지면 전용허가가 추가로 필요합니다.');
+    railHtml += chip('용도지역·지구', state.landUse.length ? (state.landUse.length+'건 확인필요') : '해당없음', state.landUse.length ? 's-warn' : 's-ok',
+      '개발제한구역·보전산지·공익용산지 등이면 불가 가능성이 높고, 계획관리·보전관리지역 등은 조건부 가능인 경우가 많습니다. 아래 02번 항목별 설명 참고.');
+    railHtml += chip('이격거리', '지자체 확인 필요', 's-neutral',
+      '주거지역과 200m(태양광 국가상한, 2026.9.18~) 이내인지, 관할 조례가 이보다 더 짧게 정해뒀는지 확인하세요.');
+    railHtml += chip('선로(계통) 용량', '한전 확인 필요', 's-neutral',
+      '인근 변전소/배전선로(D/L) 여유용량이 설치하려는 용량(kW)보다 큰지 한전에서 확인하세요.');
+    document.getElementById('checklistRail').innerHTML = railHtml;
+
+    var areaPyeong = pyeong(state.areaM2);
+    var registeredArea = state.ladfrl ? parseFloat(state.ladfrl.lndpclAr) : null;
+
+    var metrics = '';
+    metrics += metricBox('주소', state.addressText || '-', '', true);
+    metrics += metricBox('지목', (state.ladfrl && state.ladfrl.lndcgrCodeNm) || '-', '', false);
+    metrics += metricBox('실측(GIS) 면적', fmt(state.areaM2,0), '㎡ · ' + fmt(areaPyeong,0) + '평', false);
+    metrics += metricBox('토지대장 등록면적', registeredArea!=null ? fmt(registeredArea,0) : '-', registeredArea!=null?'㎡':'', false);
+    document.getElementById('metricsRow').innerHTML = metrics;
+
+    // 01 land info
+    var li = '';
+    li += kv('법정동', (state.ladfrl && state.ladfrl.ldCodeNm) || '-');
+    li += kv('지번', (state.ladfrl && state.ladfrl.mnnmSlno) || (state.parcelProps && state.parcelProps.jibun) || '-');
+    li += kv('지목', (state.ladfrl && state.ladfrl.lndcgrCodeNm) || '-');
+    li += kv('소유구분', (state.ladfrl && state.ladfrl.posesnSeCodeNm) || '-');
+    li += kv('공유인수', (state.ladfrl && state.ladfrl.cnrsPsnCo) || '-');
+    li += kv('토지대장 등록면적', registeredArea!=null ? (fmt(registeredArea,0)+' ㎡') : '-');
+    li += kv('실측(GIS) 면적', state.areaM2 ? (fmt(state.areaM2,0)+' ㎡ ('+fmt(areaPyeong,1)+'평)') : '-');
+    li += kv('참고 지가(원/㎡)', (state.parcelProps && state.parcelProps.jiga) ? (fmt(+state.parcelProps.jiga,0)+' 원 · '+(state.parcelProps.gosi_year||'')+'년 기준(연속지적도 속성)') : '-');
+    li += kv('최근 정리일', (state.ladfrl && state.ladfrl.lastUpdtDt) || '-');
+    document.getElementById('landInfoGrid').innerHTML = li;
+
+    // 02 zone table
+    var tbody = document.getElementById('zoneTableBody');
+    var zoneEmpty = document.getElementById('zoneEmpty');
+    if(state.landUse.length){
+      zoneEmpty.classList.add('hidden');
+      tbody.innerHTML = state.landUse.map(function(z){
+        return '<tr><td>'+escapeHtml(z.prposAreaDstrcCodeNm||'-')+'</td><td>'+escapeHtml(z.cnflcAtNm||'-')+'</td><td class="mono">'+escapeHtml(z.registDt||'-')+'</td></tr>';
+      }).join('');
+    } else {
+      tbody.innerHTML = '';
+      zoneEmpty.classList.remove('hidden');
+    }
+    document.getElementById('zoneExplain').innerHTML = zoneExplainHtml(state.landUse);
+
+    // 03 extra — 토지특성정보 / 개별공시지가 (실제 필드명 확인됨: landCharacteristicss.field / indvdLandPrices.field)
+    var ex = '';
+    if(state.extraChar){
+      var c = state.extraChar;
+      ex += kv('기준연도', (c.stdrYear||'-') + '년');
+      ex += kv('지형고저', c.tpgrphHgCodeNm || '-');
+      ex += kv('형상', c.tpgrphFrmCodeNm || '-');
+      ex += kv('도로조건', c.roadSideCodeNm || '-');
+      ex += kv('용도지역1', c.prposArea1Nm || '-');
+      ex += kv('용도지역2', c.prposArea2Nm || '-');
+      ex += kv('토지이용상황', c.ladUseSittnNm || '-');
+      ex += kv('개별공시지가(원/㎡)', c.pblntfPclnd ? fmt(+c.pblntfPclnd,0)+' 원' : '-');
+    } else {
+      ex += kv('토지특성정보(지형·형상·도로조건 등)', '이 필지는 해당 자료가 없습니다 (공용시설지 등 일부 필지는 미공시)');
+    }
+    if(state.extraPrice){
+      var pr = state.extraPrice;
+      ex += kv('개별공시지가 공시일자', pr.pblntfDe || '-');
+      ex += kv('개별공시지가(원/㎡, 재조회)', pr.pblntfPclnd ? fmt(+pr.pblntfPclnd,0)+' 원 · '+(pr.stdrYear||'')+'년' : '-');
+    } else if(!state.extraChar){
+      ex += kv('개별공시지가(연도별 조회)', '이 필지는 해당 자료가 없습니다');
+    }
+    document.getElementById('extraInfoGrid').innerHTML = ex;
+    document.getElementById('farmlandArea').value = state.areaM2 ? Math.round(state.areaM2) : '';
+    renderFarmland();
+
+    // 05 kepco copy text
+    var copyText = (state.addressText||'') + (state.ladfrl && state.ladfrl.mnnmSlno ? (' ('+state.ladfrl.ldCodeNm+' '+state.ladfrl.mnnmSlno+')') : '');
+    document.getElementById('addrCopyText').textContent = copyText || '-';
+
+    // 06 ordinance
+    var sgg = (state.ladfrl && state.ladfrl.ldCodeNm) ? state.ladfrl.ldCodeNm.split(' ').slice(0,2).join(' ') : '';
+    document.getElementById('ordinanceCopyText').textContent = (sgg ? (sgg + ' ') : '') + '태양광 발전시설 이격거리 조례';
+
+    runSimulation();
+  }
+
+  function metricBox(lbl, val, unit, wide){
+    return '<div class="metric'+(wide?'':'')+'" style="'+(wide?'grid-column: span 2;':'')+'"><div class="lbl">'+escapeHtml(lbl)+'</div><div class="val">'+escapeHtml(val)+(unit?'<span class="unit">'+escapeHtml(unit)+'</span>':'')+'</div></div>';
+  }
+  function kv(k,v){ return '<div class="kv"><span class="k">'+escapeHtml(k)+'</span><span class="v">'+escapeHtml(v)+'</span></div>'; }
+  function renderGenericKV(obj){
+    var skip = {resultCode:1,pageNo:1,numOfRows:1,totalCount:1,resultMsg:1,manageNo:1,regstrSeCode:1,regstrSeCodeNm:1,lastUpdtDt:1,pnu:1};
+    var out = '';
+    Object.keys(obj).forEach(function(k){
+      if(skip[k]) return;
+      out += kv(k, obj[k]);
+    });
+    return out;
+  }
+
+  // ---------- 농지전용부담금(추정) ----------
+  var FARMLAND_JIMOK = {'전':1,'답':1,'과수원':1};
+  function basePricePerSqm(){
+    if(state.extraChar && state.extraChar.pblntfPclnd) return +state.extraChar.pblntfPclnd;
+    if(state.extraPrice && state.extraPrice.pblntfPclnd) return +state.extraPrice.pblntfPclnd;
+    if(state.parcelProps && state.parcelProps.jiga) return +state.parcelProps.jiga;
+    return null;
+  }
+  function detectJinheung(){
+    return state.landUse.some(function(z){ return (z.prposAreaDstrcCodeNm||'').indexOf('농업진흥지역') >= 0; });
+  }
+  function renderFarmland(){
+    var jimok = (state.ladfrl && state.ladfrl.lndcgrCodeNm) || (state.extraChar && state.extraChar.lndcgrCodeNm) || '';
+    var isFarmland = !!FARMLAND_JIMOK[jimok];
+    var grid = document.getElementById('farmlandGrid');
+    var note = document.getElementById('farmlandNote');
+
+    if(!isFarmland){
+      grid.innerHTML = kv('농지전용부담금', '지목이 「'+(jimok||'-')+'」로 농지(전·답·과수원)가 아니어 해당 없음');
+      note.textContent = '';
+      return;
+    }
+    var price = basePricePerSqm();
+    var area = parseFloat(document.getElementById('farmlandArea').value) || 0;
+    var cap = parseFloat(document.getElementById('farmlandCap').value) || 50000;
+    var zoneSel = document.getElementById('farmlandZone').value;
+    var isJinheung = zoneSel === 'auto' ? detectJinheung() : (zoneSel === 'in');
+    var rate = isJinheung ? 0.30 : 0.20;
+
+    if(price == null){
+      grid.innerHTML = kv('농지전용부담금', '개별공시지가를 조회할 수 없어 산정 불가');
+      note.textContent = '';
+      return;
+    }
+    var perSqm = Math.min(price * rate, cap);
+    var total = perSqm * area;
+
+    var html = '';
+    html += kv('적용 공시지가(원/㎡)', fmt(price,0)+' 원');
+    html += kv('부과율 (' + (zoneSel==='auto' ? '자동감지: '+(isJinheung?'진흥지역 안':'진흥지역 밖') : (isJinheung?'진흥지역 안':'진흥지역 밖')) + ')', (rate*100).toFixed(0)+'%');
+    html += kv('㎡당 부담금(상한 적용)', fmt(perSqm,0)+' 원');
+    html += kv('농지보전부담금(추정 총액)', fmt(total,0)+' 원');
+    grid.innerHTML = html;
+    note.textContent = '농지법 시행규칙 기준: 개별공시지가 × (농업진흥지역 안 30% / 밖 20%), ㎡당 상한 '+fmt(cap,0)+'원. 전용면적은 필요에 따라 직접 수정할 수 있습니다. 실제 부과액은 농지관리위원회·시군구 심사 결과에 따라 달라질 수 있습니다.';
+  }
+  ['farmlandArea','farmlandZone','farmlandCap'].forEach(function(id){
+    document.getElementById(id).addEventListener('input', renderFarmland);
+    document.getElementById(id).addEventListener('change', renderFarmland);
+  });
+
+  // ---------- module layout simulation ----------
+  function currentModuleSpec(){
+    return {
+      watt: parseFloat(document.getElementById('moduleWatt').value) || 560,
+      longMm: parseFloat(document.getElementById('moduleLong').value) || 2278,
+      shortMm: parseFloat(document.getElementById('moduleShort').value) || 1134,
+      stack: parseFloat(document.getElementById('stackCount').value) || 2,
+      tiltDeg: parseFloat(document.getElementById('tiltAngle').value) || 30,
+      setback: parseFloat(document.getElementById('setbackM').value) || 3,
+      usableRatioPct: parseFloat(document.getElementById('usableRatio').value) || 75
+    };
+  }
+
+  document.getElementById('modulePreset').addEventListener('change', function(){
+    var v = this.value;
+    var presets = { '650': {w:650, l:2465, s:1134}, '560': {w:560, l:2278, s:1134} };
+    if(presets[v]){
+      document.getElementById('moduleWatt').value = presets[v].w;
+      document.getElementById('moduleLong').value = presets[v].l;
+      document.getElementById('moduleShort').value = presets[v].s;
+    }
+    runSimulation();
+  });
+  ['moduleWatt','moduleLong','moduleShort','stackCount','tiltAngle','setbackM','usableRatio'].forEach(function(id){
+    document.getElementById(id).addEventListener('input', runSimulation);
+  });
+
+  // point-in-polygon (ray casting) — used to test whether a candidate module table
+  // actually falls inside the real (possibly irregular) parcel outline, not just its
+  // rectangular bounding box.
+  function pointInPolygon(pt, poly){
+    var x = pt[0], y = pt[1], inside = false;
+    for(var i=0, j=poly.length-1; i<poly.length; j=i++){
+      var xi=poly[i][0], yi=poly[i][1], xj=poly[j][0], yj=poly[j][1];
+      if(((yi>y) !== (yj>y)) && (x < (xj-xi)*(y-yi)/((yj-yi)||1e-12) + xi)) inside = !inside;
+    }
+    return inside;
+  }
+
+  // Lay out individual mounting tables (each holding `stack` modules) one by one,
+  // keeping only tables whose full footprint (all 4 corners) lies inside the actual
+  // parcel polygon — not just inside its bounding rectangle.
+  function buildLayout(rotatedPoly, rect, spec, pitch, tableDepth, longM){
+    // corners are tested inset by a tiny epsilon so a table edge that lands exactly
+    // on the parcel boundary (very common for rectangular parcels) doesn't get
+    // rejected by point-in-polygon boundary ambiguity.
+    var EPS = 0.01;
+    var uMinX = rect.minX + spec.setback, uMaxX = rect.maxX - spec.setback;
+    var uMinY = rect.minY + spec.setback, uMaxY = rect.maxY - spec.setback;
+    var tables = [];
+    if(uMaxX > uMinX && uMaxY > uMinY){
+      for(var y0 = uMinY; y0 + tableDepth <= uMaxY + 1e-9; y0 += pitch){
+        var y1 = y0 + tableDepth;
+        for(var x0 = uMinX; x0 + longM <= uMaxX + 1e-9; x0 += longM){
+          var x1 = x0 + longM;
+          var ix0 = x0+EPS, ix1 = Math.max(ix0, x1-EPS), iy0 = y0+EPS, iy1 = Math.max(iy0, y1-EPS);
+          var corners = [[ix0,iy0],[ix1,iy0],[ix1,iy1],[ix0,iy1]];
+          var ok = true;
+          for(var k=0;k<4;k++){ if(!pointInPolygon(corners[k], rotatedPoly)){ ok=false; break; } }
+          if(ok) tables.push({x0:x0,y0:y0,x1:x1,y1:y1});
+        }
+      }
+    }
+    return { tables: tables, uMinX:uMinX, uMaxX:uMaxX, uMinY:uMinY, uMaxY:uMaxY };
+  }
+
+  function runSimulation(){
+    var svg = document.getElementById('simSvg');
+    var note = document.getElementById('simNote');
+    if(!state.rect || !state.projected || !state.rect.w){
+      svg.innerHTML = '';
+      document.getElementById('resModulesLayout').textContent = '-';
+      document.getElementById('resModulesArea').textContent = '-';
+      document.getElementById('resCapacity').textContent = '-';
+      document.getElementById('resGrid').textContent = '-';
+      note.textContent = '필지 경계 정보를 불러오지 못해 배치 시뮬레이션을 표시할 수 없습니다.';
+      return;
+    }
+    var spec = currentModuleSpec();
+    var longM = spec.longMm/1000, shortM = spec.shortMm/1000;
+    var tiltRad = spec.tiltDeg * Math.PI/180;
+
+    var lat = Math.abs(state.lat0 || 36);
+    var decl = 23.45; // winter solstice solar declination
+    var sunAltDeg = 90 - lat - decl; // worst-case solar noon altitude (northern hemisphere)
+    if(sunAltDeg < 5) sunAltDeg = 5;
+    var sunAltRad = sunAltDeg * Math.PI/180;
+
+    var tableDepth = spec.stack * shortM * Math.cos(tiltRad);
+    var tableRise = spec.stack * shortM * Math.sin(tiltRad);
+    var pitch = tableDepth + (tableRise / Math.tan(sunAltRad));
+
+    var rect = state.rect;
+    var rotatedPoly = rotateAll(state.projected, rect.angle);
+    var layout = buildLayout(rotatedPoly, rect, spec, pitch, tableDepth, longM);
+    var tableCount = layout.tables.length;
+    var layoutModules = tableCount * spec.stack;
+
+    var moduleAreaEach = longM * shortM;
+    var areaBasedModules = moduleAreaEach>0 ? Math.floor((state.areaM2 * (spec.usableRatioPct/100)) / moduleAreaEach) : 0;
+
+    var capacityKw = (layoutModules * spec.watt) / 1000;
+
+    document.getElementById('resModulesLayout').textContent = fmt(layoutModules,0) + ' 매';
+    document.getElementById('resModulesArea').textContent = fmt(areaBasedModules,0) + ' 매';
+    document.getElementById('resCapacity').textContent = fmt(capacityKw,1) + ' kWp';
+    document.getElementById('resGrid').textContent = fmt(tableCount,0) + '개 × ' + spec.stack + '단';
+
+    note.textContent = '설계 기준: 위도 ' + lat.toFixed(2) + '°N 동지 태양고도 ' + sunAltDeg.toFixed(1) + '°에서 앞줄 그늘이 뒷줄에 닿지 않도록 행간(pitch) ' + pitch.toFixed(2) + 'm 적용. 각 테이블(가로 ' + longM.toFixed(2) + 'm × 세로 ' + tableDepth.toFixed(2) + 'm, ' + spec.stack + '단 모듈 ' + spec.stack + '매 탑재)의 네 꼭짓점이 실제 필지 경계 안에 들어가는지 하나씩 검사해 배치했습니다. 면적기준 참고치는 가용면적비율 ' + spec.usableRatioPct + '%만 적용한 단순 상한값입니다.';
+
+    drawSvg(rect, layout, tableDepth);
+  }
+
+  function drawSvg(rect, layout, tableDepth){
+    var svg = document.getElementById('simSvg');
+    var rotated = rotateAll(state.projected, rect.angle);
+    var spanX = rect.maxX-rect.minX, spanY = rect.maxY-rect.minY;
+    var pad = 24, drawW = 400-2*pad, drawH = 300-2*pad;
+    var scale = Math.min(drawW/Math.max(spanX,0.01), drawH/Math.max(spanY,0.01));
+
+    function toSvg(x,y){ return [ pad + (x-rect.minX)*scale, pad + (rect.maxY-y)*scale ]; }
+
+    var css = getComputedStyle(document.documentElement);
+    var lineColor = css.getPropertyValue('--line').trim() || '#ccc';
+    var inkColor = css.getPropertyValue('--muted').trim() || '#888';
+    var accentColor = css.getPropertyValue('--accent').trim() || '#d97f2c';
+
+    var parts = [];
+    // parcel polygon (the real, possibly irregular, outline)
+    var pd = rotated.map(function(p,i){ var s=toSvg(p[0],p[1]); return (i===0?'M':'L')+s[0].toFixed(1)+','+s[1].toFixed(1); }).join(' ') + ' Z';
+    parts.push('<path d="'+pd+'" fill="'+lineColor+'" fill-opacity="0.35" stroke="'+inkColor+'" stroke-width="1.5"/>');
+
+    // each individual module table that passed the polygon containment test
+    var maxDraw = 2000;
+    var tables = layout.tables;
+    var n = Math.min(tables.length, maxDraw);
+    for(var i=0;i<n;i++){
+      var t = tables[i];
+      var a = toSvg(t.x0, t.y1), b = toSvg(t.x1, t.y0);
+      parts.push('<rect x="'+Math.min(a[0],b[0]).toFixed(1)+'" y="'+Math.min(a[1],b[1]).toFixed(1)+'" width="'+Math.max(0.5,Math.abs(b[0]-a[0])).toFixed(1)+'" height="'+Math.max(0.5,Math.abs(b[1]-a[1])).toFixed(1)+'" fill="'+accentColor+'" fill-opacity="0.8" stroke="'+css.getPropertyValue('--surface').trim()+'" stroke-width="0.4"/>');
+    }
+    if(tables.length > maxDraw){
+      var lbl = toSvg(layout.uMinX, layout.uMinY);
+      parts.push('<text x="'+lbl[0].toFixed(1)+'" y="'+(lbl[1]+14).toFixed(1)+'" font-size="9" fill="'+inkColor+'">대표 '+maxDraw+'개만 표시 (전체 '+tables.length+'개)</text>');
+    }
+    svg.innerHTML = parts.join('');
+  }
+
+  // ---------- copy buttons ----------
+  function bindCopy(btnId, textId){
+    document.getElementById(btnId).addEventListener('click', function(){
+      var text = document.getElementById(textId).textContent;
+      if(!text || text==='-') return;
+      var btn = this;
+      var original = btn.textContent;
+      function done(ok){ btn.textContent = ok ? '복사됨 ✓' : '복사 실패'; setTimeout(function(){ btn.textContent = original; }, 1500); }
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(text).then(function(){done(true);}).catch(function(){done(false);});
+      } else {
+        try{
+          var ta = document.createElement('textarea');
+          ta.value = text; document.body.appendChild(ta); ta.select();
+          document.execCommand('copy'); document.body.removeChild(ta); done(true);
+        }catch(e){ done(false); }
+      }
+    });
+  }
+  bindCopy('copyAddrBtn','addrCopyText');
+  bindCopy('copyOrdinanceBtn','ordinanceCopyText');
+
+})();
+</script>
