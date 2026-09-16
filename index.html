@@ -158,6 +158,26 @@ svg.simsvg{width:100%;height:auto;background:var(--surface-2);border-radius:10px
 footer{margin-top:24px;color:var(--muted);font-size:11px;line-height:1.6;border-top:1px solid var(--line);padding-top:14px;}
 a{color:var(--accent);}
 ::selection{background:var(--accent);color:var(--accent-ink);}
+
+.printbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:14px 0 4px;}
+.printbar .note{color:var(--muted);}
+
+@media print{
+  body{background:#fff!important;color:#111!important;padding:0;}
+  .wrap{max-width:100%;}
+  .searchbar, #parcelChips, .hint, #status, #printBar, .dropdown, .clearallbtn{display:none!important;}
+  button.btn{display:none!important;}
+  a.btn{border:none;padding:0;color:#111;font-weight:700;}
+  a.btn[href]::after{content:" → " attr(href);font-size:9px;color:#555;font-weight:400;}
+  .card,.metric,.chip{background:#fff!important;border-color:#ccc!important;box-shadow:none!important;break-inside:avoid;page-break-inside:avoid;}
+  .metric.accent{background:#fff!important;border:1px solid #D97F2C!important;}
+  .metric.accent .lbl,.metric.accent .val{color:#111!important;}
+  .layout{grid-template-columns:1fr;display:block;}
+  .rail{display:grid;grid-template-columns:repeat(4,1fr);position:static;margin-bottom:14px;}
+  .cards{gap:10px;}
+  #mapview{height:260px;}
+  svg.simsvg,.card{page-break-inside:avoid;}
+}
 </style>
 
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;700&display=swap">
@@ -184,6 +204,11 @@ a{color:var(--accent);}
 
   <div id="results" class="hidden">
 
+    <div class="printbar" id="printBar">
+      <button class="btn primary" id="printBtn" type="button">🖨 인쇄 / PDF로 저장</button>
+      <span class="note" style="margin:0;">PDF로 저장하려면 인쇄 대화상자에서 프린터를 "PDF로 저장"으로 선택하세요.</span>
+    </div>
+
     <div class="metrics" id="metricsRow"></div>
 
     <div class="layout">
@@ -204,11 +229,11 @@ a{color:var(--accent);}
 
         <div class="card">
           <h3><span class="n">02</span> 용도지역 · 지구 분석</h3>
-          <p class="desc">각 필지에 걸쳐 있는 용도지역/지구 목록 — 실제 건축·설치 가능 여부는 관할 지자체 확인이 필요합니다.</p>
+          <p class="desc">추가한 필지들에 걸쳐 있는 용도지역/지구 목록입니다. 여러 필지에 같은 용도지역/지구가 겹치면 한 줄로 합쳐서 보여줍니다 — 실제 건축·설치 가능 여부는 관할 지자체 확인이 필요합니다.</p>
           <div class="legend">※ 포함: 필지 전체가 해당 구역 안에 있음 · 저촉: 필지 경계선이 구역과 겹쳐 있어 필지의 일부만 해당될 수 있음</div>
           <div class="overflow">
             <table class="zonelist">
-              <thead><tr><th>지번</th><th>구분</th><th>포함 여부</th><th>등록일</th></tr></thead>
+              <thead><tr><th>구분</th><th>해당 필지</th><th>포함 여부</th><th>등록일</th></tr></thead>
               <tbody id="zoneTableBody"></tbody>
             </table>
           </div>
@@ -287,7 +312,36 @@ a{color:var(--accent);}
         </div>
 
         <div class="card">
-          <h3><span class="n">05</span> 선로(계통) 여유용량 확인</h3>
+          <h3><span class="n">05</span> 경제성 분석 (참고용)</h3>
+          <p class="desc">위 04번 시뮬레이션의 예상 용량(kWp)을 기준으로 계산한 단순 사업성 참고자료입니다. SMP·REC·설치비 단가는 지역·시점·사업 조건에 따라 크게 달라지므로, 아래 값을 실제 최신 시세·견적으로 바꿔서 확인하세요.</p>
+
+          <div class="settings" id="econSettings">
+            <div class="field"><label>설치비(원/kW)</label><input id="econCapex" type="number" value="1400000" step="10000"></div>
+            <div class="field"><label>SMP(원/kWh)</label><input id="econSmp" type="number" value="148" step="1"></div>
+            <div class="field"><label>REC 가격(원/REC)</label><input id="econRecPrice" type="number" value="70878" step="100"></div>
+            <div class="field"><label>REC 가중치</label><input id="econRecWeight" type="number" value="1.0" step="0.1"></div>
+            <div class="field"><label>연간 이용률(%)</label><input id="econCf" type="number" value="15" step="0.5"></div>
+            <div class="field"><label>연간 O&M(설치비 대비 %)</label><input id="econOm" type="number" value="1.5" step="0.1"></div>
+            <div class="field"><label>운영기간(년)</label><input id="econYears" type="number" value="20" step="1"></div>
+          </div>
+
+          <div class="simresult">
+            <div class="box"><div class="lbl">총 사업비(투자비)</div><div class="val mono" id="econCapexTotal">-</div></div>
+            <div class="box"><div class="lbl">연간 예상 발전량</div><div class="val mono" id="econGen">-</div></div>
+            <div class="box"><div class="lbl">연간 예상 매출(SMP+REC)</div><div class="val mono" id="econRevenue">-</div></div>
+            <div class="box"><div class="lbl">연간 O&amp;M 비용</div><div class="val mono" id="econOmCost">-</div></div>
+            <div class="box"><div class="lbl">단순 회수기간</div><div class="val mono" id="econPayback">-</div></div>
+            <div class="box"><div class="lbl">운영기간(입력값) 누적 순이익</div><div class="val mono" id="econNet">-</div></div>
+          </div>
+          <div class="note" id="econNote"></div>
+
+          <div class="kepco">
+            <a class="btn" href="https://www.kpx.or.kr/menu.es?mid=a30401000000" target="_blank" rel="noopener">전력거래소 — 오늘의 SMP·REC 시세 확인 ↗</a>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3><span class="n">06</span> 선로(계통) 여유용량 확인</h3>
           <p class="desc">배전선로 여유용량은 한전(KEPCO) 로그인 기반 시스템에서만 실시간 조회가 가능합니다. 아래 정보를 복사해 한전 사이트에서 직접 확인하세요.</p>
           <div class="copytext" id="addrCopyText">-</div>
           <div class="kepco">
@@ -298,7 +352,7 @@ a{color:var(--accent);}
         </div>
 
         <div class="card">
-          <h3><span class="n">06</span> 이격거리 조례 확인</h3>
+          <h3><span class="n">07</span> 이격거리 조례 확인</h3>
           <p class="desc">태양광 이격거리는 시·군·구 자치법규로 정해져 왔으나, 2026년 9월 18일부터 국가 상한이 새로 적용됩니다.</p>
 
           <div class="lawbox">
@@ -870,12 +924,28 @@ a{color:var(--accent);}
     }
     document.getElementById('landInfoBody').innerHTML = li;
 
-    // 02 zone table (per parcel, flattened)
-    var zoneRows = [];
-    state.parcels.forEach(function(p){
+    // 02 zone table — grouped by zone name so a zone shared by several parcels prints as one row
+    var zoneGroups = {}, zoneOrder = [];
+    loaded.forEach(function(p){
       (p.landUse||[]).forEach(function(z){
-        zoneRows.push('<tr><td class="mono">'+escapeHtml(jibunOf(p))+'</td><td>'+escapeHtml(z.prposAreaDstrcCodeNm||'-')+'</td><td>'+escapeHtml(z.cnflcAtNm||'-')+'</td><td class="mono">'+escapeHtml(z.registDt||'-')+'</td></tr>');
+        var name = z.prposAreaDstrcCodeNm || '(구분 없음)';
+        if(!zoneGroups[name]){ zoneGroups[name] = { jibuns:[], statuses:{}, dates:{} }; zoneOrder.push(name); }
+        var g = zoneGroups[name];
+        g.jibuns.push(jibunOf(p));
+        if(z.cnflcAtNm) g.statuses[z.cnflcAtNm] = (g.statuses[z.cnflcAtNm]||0) + 1;
+        if(z.registDt) g.dates[z.registDt] = 1;
       });
+    });
+    var zoneRows = zoneOrder.map(function(name){
+      var g = zoneGroups[name];
+      var jibunLabel = (loaded.length > 1 && g.jibuns.length === loaded.length)
+        ? ('전체 '+loaded.length+'필지')
+        : (g.jibuns.length + '/' + loaded.length + '필지: ' + g.jibuns.join(', '));
+      var statusLabel = Object.keys(g.statuses).map(function(s){
+        return g.statuses[s] > 1 ? (s+'('+g.statuses[s]+')') : s;
+      }).join(' · ') || '-';
+      var dateLabel = Object.keys(g.dates).sort().slice(-1)[0] || '-';
+      return '<tr><td>'+escapeHtml(name)+'</td><td>'+escapeHtml(jibunLabel)+'</td><td>'+escapeHtml(statusLabel)+'</td><td class="mono">'+escapeHtml(dateLabel)+'</td></tr>';
     });
     var zoneEmpty = document.getElementById('zoneEmpty');
     if(zoneRows.length){
@@ -975,6 +1045,7 @@ a{color:var(--accent);}
       document.getElementById('resCapacity').textContent = '-';
       document.getElementById('resGrid').textContent = '-';
       note.textContent = '필지 경계 정보를 불러오지 못해 배치 시뮬레이션을 표시할 수 없습니다.';
+      updateEconomics(0);
       return;
     }
     var spec = currentModuleSpec();
@@ -1015,7 +1086,50 @@ a{color:var(--accent);}
       '설계 기준: 위도 ' + lat.toFixed(2) + '°N 동지 태양고도 ' + sunAltDeg.toFixed(1) + '°에서 앞줄 그늘이 뒷줄에 닿지 않도록 행간(pitch) ' + pitch.toFixed(2) + 'm 적용. 각 테이블(가로 ' + longM.toFixed(2) + 'm × 세로 ' + tableDepth.toFixed(2) + 'm, ' + spec.stack + '단 모듈 ' + spec.stack + '매 탑재)의 네 꼭짓점이 추가된 필지들 중 하나에라도 들어가는지 하나씩 검사해 배치했습니다(필지 경계선이 서로 붙어있으면 그 경계를 넘어서도 배치됩니다). 면적기준 참고치는 가용면적비율 ' + spec.usableRatioPct + '%만 적용한 단순 상한값입니다.';
 
     drawSvg(rect, rotatedPolys, layout, tableDepth);
+    updateEconomics(capacityKw);
   }
+
+  // ---------- economics (참고용) ----------
+  var lastCapacityKw = 0;
+  function updateEconomics(capacityKw){
+    lastCapacityKw = capacityKw || 0;
+    var note = document.getElementById('econNote');
+    if(!lastCapacityKw){
+      ['econCapexTotal','econGen','econRevenue','econOmCost','econPayback','econNet'].forEach(function(id){
+        document.getElementById(id).textContent = '-';
+      });
+      note.textContent = '';
+      return;
+    }
+    var capexPerKw = parseFloat(document.getElementById('econCapex').value) || 0;
+    var smp = parseFloat(document.getElementById('econSmp').value) || 0;
+    var recPrice = parseFloat(document.getElementById('econRecPrice').value) || 0;
+    var recWeight = parseFloat(document.getElementById('econRecWeight').value) || 0;
+    var cfPct = parseFloat(document.getElementById('econCf').value) || 0;
+    var omPct = parseFloat(document.getElementById('econOm').value) || 0;
+    var years = parseFloat(document.getElementById('econYears').value) || 20;
+
+    var capexTotal = lastCapacityKw * capexPerKw;
+    var annualGenKwh = lastCapacityKw * 8760 * (cfPct/100);
+    var sellPricePerKwh = smp + (recPrice * recWeight) / 1000; // 1 REC = 1,000kWh 발전량 기준
+    var annualRevenue = annualGenKwh * sellPricePerKwh;
+    var annualOm = capexTotal * (omPct/100);
+    var annualNet = annualRevenue - annualOm;
+    var paybackYears = annualNet > 0 ? (capexTotal / annualNet) : null;
+    var cumulativeNet = annualNet * years - capexTotal;
+
+    document.getElementById('econCapexTotal').textContent = fmt(capexTotal/10000,0) + ' 만원';
+    document.getElementById('econGen').textContent = fmt(annualGenKwh/1000,0) + ' MWh/년';
+    document.getElementById('econRevenue').textContent = fmt(annualRevenue/10000,0) + ' 만원/년';
+    document.getElementById('econOmCost').textContent = fmt(annualOm/10000,0) + ' 만원/년';
+    document.getElementById('econPayback').textContent = paybackYears ? (fmt(paybackYears,1) + ' 년') : '회수불가(비용>매출)';
+    document.getElementById('econNet').textContent = fmt(cumulativeNet/10000,0) + ' 만원';
+
+    note.textContent = '판매단가 = SMP('+fmt(smp,0)+'원/kWh) + REC('+fmt(recPrice,0)+'원)×가중치('+recWeight+')/1000 = 약 '+fmt(sellPricePerKwh,1)+'원/kWh 가정. 용량 '+fmt(lastCapacityKw,1)+'kWp, 이용률 '+cfPct+'%로 연간 발전량을 추정한 단순 계산이며, 토지비용·금융비용(이자)·세금·REC 가중치 실제 고시값은 반영하지 않았습니다. 실제 사업성은 반드시 EPC사 견적과 최신 SMP·REC 시세, 해당 부지의 REC 가중치 고시 기준으로 재검토하세요.';
+  }
+  ['econCapex','econSmp','econRecPrice','econRecWeight','econCf','econOm','econYears'].forEach(function(id){
+    document.getElementById(id).addEventListener('input', function(){ updateEconomics(lastCapacityKw); });
+  });
 
   function drawSvg(rect, rotatedPolys, layout, tableDepth){
     var svg = document.getElementById('simSvg');
@@ -1083,6 +1197,15 @@ a{color:var(--accent);}
   }
   bindCopy('copyAddrBtn','addrCopyText');
   bindCopy('copyOrdinanceBtn','ordinanceCopyText');
+
+  // ---------- print / save as PDF ----------
+  var originalTitle = document.title;
+  document.getElementById('printBtn').addEventListener('click', function(){
+    var firstAddr = state.parcels[0] ? state.parcels[0].addressText : '';
+    document.title = firstAddr ? ('솔라 부지진단_' + firstAddr.replace(/\s+/g,'_')) : originalTitle;
+    window.print();
+    setTimeout(function(){ document.title = originalTitle; }, 1000);
+  });
 
 })();
 </script>
