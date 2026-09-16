@@ -248,7 +248,7 @@ a{color:var(--accent);}
 
         <div class="card">
           <h3><span class="n">04</span> 필지 형상 · 모듈 배치 시뮬레이션</h3>
-          <p class="desc">추가한 모든 필지를 하나로 합쳐, 필지 경계 안에 실제로 들어가는 모듈 테이블 하나씩을 검사해 배치합니다. 실제 배치는 정밀 실측·설계 시 달라질 수 있습니다.</p>
+          <p class="desc">추가한 모든 필지를 하나로 합쳐, 필지 경계 안에 실제로 들어가는 모듈 테이블 하나씩을 검사해 배치합니다. 아래 배치도는 실제 방위(정북 기준, 위성사진과 동일한 방향)로 그려집니다. 실제 배치는 정밀 실측·설계 시 달라질 수 있습니다.</p>
 
           <div class="maplabel"><span class="lbl">위성사진 — 필지 경계 오버레이</span><span class="src">브이월드 위성영상</span></div>
           <div id="mapview"></div>
@@ -258,12 +258,13 @@ a{color:var(--accent);}
               <label>모듈 규격</label>
               <select id="modulePreset">
                 <option value="custom">직접입력</option>
+                <option value="645" selected>645W · 현대 HiN-T645NJ · 2465×1134mm</option>
                 <option value="650">650W · 2465×1134mm</option>
-                <option value="560" selected>560W · 2278×1134mm</option>
+                <option value="560">560W · 2278×1134mm</option>
               </select>
             </div>
-            <div class="field"><label>정격출력(W)</label><input id="moduleWatt" type="number" value="560" step="5"></div>
-            <div class="field"><label>장변(mm)</label><input id="moduleLong" type="number" value="2278" step="1"></div>
+            <div class="field"><label>정격출력(W)</label><input id="moduleWatt" type="number" value="645" step="5"></div>
+            <div class="field"><label>장변(mm)</label><input id="moduleLong" type="number" value="2465" step="1"></div>
             <div class="field"><label>단변(mm)</label><input id="moduleShort" type="number" value="1134" step="1"></div>
             <div class="field">
               <label>거치 단수</label>
@@ -660,8 +661,15 @@ a{color:var(--accent);}
       }
     });
     var totalArea = state.parcels.reduce(function(s,p){ return s + (p.areaM2||0); }, 0);
-    var hull = convexHull(allProjected);
-    var rect = minAreaRect(hull);
+    // Fixed to true north (angle 0), not the minimum-area bounding rectangle: solar tables must
+    // run east-west facing south regardless of the parcel's own shape, and this keeps the layout
+    // diagram's orientation identical to the satellite map above it (north-up).
+    var minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+    allProjected.forEach(function(p){
+      if(p[0]<minX) minX=p[0]; if(p[0]>maxX) maxX=p[0];
+      if(p[1]<minY) minY=p[1]; if(p[1]>maxY) maxY=p[1];
+    });
+    var rect = { angle:0, minX:minX, maxX:maxX, minY:minY, maxY:maxY, w:maxX-minX, h:maxY-minY };
     state.combined = { lat0: lat0, rect: rect, areaM2: totalArea };
   }
 
@@ -906,8 +914,8 @@ a{color:var(--accent);}
   // ---------- module layout simulation (combined across all parcels) ----------
   function currentModuleSpec(){
     return {
-      watt: parseFloat(document.getElementById('moduleWatt').value) || 560,
-      longMm: parseFloat(document.getElementById('moduleLong').value) || 2278,
+      watt: parseFloat(document.getElementById('moduleWatt').value) || 645,
+      longMm: parseFloat(document.getElementById('moduleLong').value) || 2465,
       shortMm: parseFloat(document.getElementById('moduleShort').value) || 1134,
       stack: parseFloat(document.getElementById('stackCount').value) || 2,
       tiltDeg: parseFloat(document.getElementById('tiltAngle').value) || 30,
@@ -918,7 +926,7 @@ a{color:var(--accent);}
 
   document.getElementById('modulePreset').addEventListener('change', function(){
     var v = this.value;
-    var presets = { '650': {w:650, l:2465, s:1134}, '560': {w:560, l:2278, s:1134} };
+    var presets = { '645': {w:645, l:2465, s:1134}, '650': {w:650, l:2465, s:1134}, '560': {w:560, l:2278, s:1134} };
     if(presets[v]){
       document.getElementById('moduleWatt').value = presets[v].w;
       document.getElementById('moduleLong').value = presets[v].l;
@@ -1041,6 +1049,16 @@ a{color:var(--accent);}
       var lbl = toSvg(layout.uMinX, layout.uMinY);
       parts.push('<text x="'+lbl[0].toFixed(1)+'" y="'+(lbl[1]+14).toFixed(1)+'" font-size="9" fill="'+inkColor+'">대표 '+maxDraw+'개만 표시 (전체 '+tables.length+'개)</text>');
     }
+
+    // north arrow — this diagram is drawn true north-up (angle 0, no rotation), the same
+    // orientation as the satellite map above it, so "up" here = "up" on the map.
+    var nx = 400-pad-6, ny0 = pad+2, ny1 = pad+18;
+    parts.push('<g>'+
+      '<line x1="'+nx+'" y1="'+ny1+'" x2="'+nx+'" y2="'+ny0+'" stroke="'+inkColor+'" stroke-width="1.4"/>'+
+      '<path d="M'+(nx-4)+','+(ny0+6)+' L'+nx+','+ny0+' L'+(nx+4)+','+(ny0+6)+' Z" fill="'+inkColor+'"/>'+
+      '<text x="'+nx+'" y="'+(ny1+11)+'" font-size="10" font-weight="700" fill="'+inkColor+'" text-anchor="middle">N</text>'+
+    '</g>');
+
     svg.innerHTML = parts.join('');
   }
 
