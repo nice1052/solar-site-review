@@ -77,6 +77,14 @@ header.top p{color:var(--muted);font-size:13.5px;margin:2px 0 0;}
 #status.err{color:var(--bad-ink);}
 .hidden{display:none!important;}
 
+.parcelchips{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 0;}
+.parcelchip{display:flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:6px 8px 6px 13px;font-size:12.5px;}
+.parcelchip.loading{color:var(--muted);}
+.parcelchip.error{border-color:var(--bad-ink);color:var(--bad-ink);}
+.parcelchip button{border:none;background:var(--neutral-bg);color:var(--muted);cursor:pointer;font-size:13px;line-height:1;width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;padding:0;}
+.parcelchip button:hover{background:var(--bad-bg);color:var(--bad-ink);}
+.clearallbtn{font-size:11.5px;color:var(--muted);background:none;border:none;text-decoration:underline;cursor:pointer;padding:6px 2px;}
+
 .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0;}
 @media (max-width:640px){.metrics{grid-template-columns:repeat(2,1fr);}}
 .metric{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 14px 12px;}
@@ -112,9 +120,10 @@ header.top p{color:var(--muted);font-size:13.5px;margin:2px 0 0;}
 .kv .k{color:var(--muted);}
 .kv .v{font-weight:600;text-align:right;}
 table.zonelist{width:100%;border-collapse:collapse;font-size:13px;}
-table.zonelist th{text-align:left;color:var(--muted);font-weight:600;font-size:11.5px;padding:6px 8px;border-bottom:1px solid var(--line);}
+table.zonelist th{text-align:left;color:var(--muted);font-weight:600;font-size:11.5px;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap;}
 table.zonelist td{padding:8px 8px;border-bottom:1px solid var(--line);vertical-align:top;}
 table.zonelist tr:last-child td{border-bottom:none;}
+table.zonelist tr.totalrow td{font-weight:700;border-top:2px solid var(--line);border-bottom:none;}
 .overflow{overflow-x:auto;}
 
 .settings{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px;padding:12px;background:var(--surface-2);border-radius:10px;}
@@ -144,7 +153,7 @@ svg.simsvg{width:100%;height:auto;background:var(--surface-2);border-radius:10px
 .btn{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;padding:9px 14px;border-radius:9px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;text-decoration:none;}
 .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent;}
 .btn:hover{filter:brightness(0.97);}
-.copytext{font-family:var(--mono);font-size:12.5px;background:var(--neutral-bg);padding:8px 10px;border-radius:8px;flex:1;min-width:220px;}
+.copytext{font-family:var(--mono);font-size:12.5px;background:var(--neutral-bg);padding:8px 10px;border-radius:8px;flex:1;min-width:220px;white-space:pre-line;}
 
 footer{margin-top:24px;color:var(--muted);font-size:11px;line-height:1.6;border-top:1px solid var(--line);padding-top:14px;}
 a{color:var(--accent);}
@@ -160,15 +169,16 @@ a{color:var(--accent);}
   <header class="top">
     <div class="eyebrow">SOLAR SITE ONE-POINT CHECK</div>
     <h1>솔라 부지진단</h1>
-    <p>주소 하나로 지목·용도지역·필지 형상을 확인하고, 모듈 배치 시뮬레이션으로 지상형 설치 최대 용량을 추정합니다.</p>
+    <p>주소로 필지를 추가하면 지목·용도지역·필지 형상을 확인하고, 모듈 배치 시뮬레이션으로 지상형 설치 최대 용량을 추정합니다. 붙어있는 여러 필지를 추가하면 하나로 합쳐서 계산해요.</p>
   </header>
 
   <div class="searchbar">
-    <input id="addrInput" type="text" placeholder="지번 또는 도로명 주소를 입력하세요 (예: 전남 무안군 무안읍 성동리 56-4)" autocomplete="off">
+    <input id="addrInput" type="text" placeholder="지번 또는 도로명 주소를 입력하세요 — 여러 필지를 계속 추가할 수 있어요" autocomplete="off">
     <span class="icon">⌕</span>
     <div id="dropdown" class="dropdown hidden"></div>
   </div>
-  <div class="hint">브이월드(VWorld) 공간정보 오픈API 기반 · 지상형(地上型) 부지 검토용</div>
+  <div class="hint">브이월드(VWorld) 공간정보 오픈API 기반 · 지상형(地上型) 부지 검토용 · 필지를 여러 개 추가하면 합산 분석</div>
+  <div id="parcelChips" class="parcelchips"></div>
 
   <div id="status"></div>
 
@@ -183,17 +193,22 @@ a{color:var(--accent);}
 
         <div class="card">
           <h3><span class="n">01</span> 토지 정보</h3>
-          <p class="desc">토지대장·연속지적도 기준 필지 기본 정보</p>
-          <div class="kvgrid" id="landInfoGrid"></div>
+          <p class="desc">토지대장·연속지적도 기준 필지별 기본 정보 (필지 <span id="parcelCountText">0</span>개)</p>
+          <div class="overflow">
+            <table class="zonelist">
+              <thead><tr><th>지번</th><th>지목</th><th>소유구분</th><th>등록면적</th><th>실측(GIS)면적</th></tr></thead>
+              <tbody id="landInfoBody"></tbody>
+            </table>
+          </div>
         </div>
 
         <div class="card">
           <h3><span class="n">02</span> 용도지역 · 지구 분석</h3>
-          <p class="desc">해당 필지에 걸쳐 있는 용도지역/지구 목록 — 실제 건축·설치 가능 여부는 관할 지자체 확인이 필요합니다.</p>
+          <p class="desc">각 필지에 걸쳐 있는 용도지역/지구 목록 — 실제 건축·설치 가능 여부는 관할 지자체 확인이 필요합니다.</p>
           <div class="legend">※ 포함: 필지 전체가 해당 구역 안에 있음 · 저촉: 필지 경계선이 구역과 겹쳐 있어 필지의 일부만 해당될 수 있음</div>
           <div class="overflow">
             <table class="zonelist">
-              <thead><tr><th>구분</th><th>포함 여부</th><th>등록일</th></tr></thead>
+              <thead><tr><th>지번</th><th>구분</th><th>포함 여부</th><th>등록일</th></tr></thead>
               <tbody id="zoneTableBody"></tbody>
             </table>
           </div>
@@ -202,14 +217,18 @@ a{color:var(--accent);}
         </div>
 
         <div class="card">
-          <h3><span class="n">03</span> 개별공시지가 · 토지특성</h3>
+          <h3><span class="n">03</span> 개별공시지가 · 토지특성 · 농지전용부담금</h3>
           <p class="desc">브이월드 부동산종합정보 연계 데이터 (공용시설지 등 일부 필지는 개별공시지가·토지특성정보가 미공시일 수 있습니다)</p>
-          <div class="kvgrid" id="extraInfoGrid"></div>
+          <div class="overflow">
+            <table class="zonelist">
+              <thead><tr><th>지번</th><th>지목</th><th>개별공시지가(원/㎡)</th><th>지형고저</th><th>형상</th></tr></thead>
+              <tbody id="charTableBody"></tbody>
+            </table>
+          </div>
 
-          <div class="settings" id="farmlandSettings" style="margin-top:14px;grid-template-columns:repeat(3,1fr);">
-            <div class="field"><label>전용면적(㎡)</label><input id="farmlandArea" type="number" step="1"></div>
+          <div class="settings" id="farmlandSettings" style="margin-top:14px;grid-template-columns:repeat(2,1fr);">
             <div class="field">
-              <label>농업진흥지역 여부</label>
+              <label>농업진흥지역 여부(농지 필지 전체 적용)</label>
               <select id="farmlandZone">
                 <option value="auto">자동감지</option>
                 <option value="in">진흥지역 안(30%)</option>
@@ -218,13 +237,18 @@ a{color:var(--accent);}
             </div>
             <div class="field"><label>㎡당 상한(원)</label><input id="farmlandCap" type="number" value="50000" step="1000"></div>
           </div>
-          <div class="kvgrid" id="farmlandGrid"></div>
+          <div class="overflow">
+            <table class="zonelist" id="farmlandTable">
+              <thead><tr><th>지번</th><th>지목</th><th>면적(㎡)</th><th>공시지가(원/㎡)</th><th>부과율</th><th>부담금(㎡당)</th><th>소계</th></tr></thead>
+              <tbody id="farmlandBody"></tbody>
+            </table>
+          </div>
           <div class="note" id="farmlandNote"></div>
         </div>
 
         <div class="card">
           <h3><span class="n">04</span> 필지 형상 · 모듈 배치 시뮬레이션</h3>
-          <p class="desc">필지의 최소 외곽 사각형(회전 보정) 기준 개략 배치입니다. 실제 배치는 정밀 실측·설계 시 달라질 수 있습니다.</p>
+          <p class="desc">추가한 모든 필지를 하나로 합쳐, 필지 경계 안에 실제로 들어가는 모듈 테이블 하나씩을 검사해 배치합니다. 실제 배치는 정밀 실측·설계 시 달라질 수 있습니다.</p>
 
           <div class="maplabel"><span class="lbl">위성사진 — 필지 경계 오버레이</span><span class="src">브이월드 위성영상</span></div>
           <div id="mapview"></div>
@@ -426,47 +450,50 @@ a{color:var(--accent);}
     var cosA = Math.cos(-angle), sinA = Math.sin(-angle);
     return points.map(function(p){ return [ p[0]*cosA - p[1]*sinA, p[0]*sinA + p[1]*cosA ]; });
   }
+  // point-in-polygon (ray casting). corners are tested inset by a tiny epsilon so an edge
+  // that lands exactly on a parcel boundary (very common for rectangular parcels) isn't
+  // rejected by boundary ambiguity.
+  function pointInPolygon(pt, poly){
+    var x = pt[0], y = pt[1], inside = false;
+    for(var i=0, j=poly.length-1; i<poly.length; j=i++){
+      var xi=poly[i][0], yi=poly[i][1], xj=poly[j][0], yj=poly[j][1];
+      if(((yi>y) !== (yj>y)) && (x < (xj-xi)*(y-yi)/((yj-yi)||1e-12) + xi)) inside = !inside;
+    }
+    return inside;
+  }
+  // "inside the combined site" = inside ANY of the added parcels' polygons. This lets a
+  // module table straddle the shared internal line between two touching parcels without
+  // needing to compute a merged (unioned) outline first.
+  function pointInAny(pt, polys){
+    for(var i=0;i<polys.length;i++){ if(pointInPolygon(pt, polys[i])) return true; }
+    return false;
+  }
 
   // ---------- number formatting ----------
   function fmt(n, digits){ if(n===null||n===undefined||isNaN(n)) return "-"; return n.toLocaleString('ko-KR', {maximumFractionDigits: digits===undefined?0:digits}); }
   function pyeong(sqm){ return sqm/3.305785; }
-
-  // ---------- state ----------
-  var state = { pnu:null, point:null, addressText:null, polygonPtsLonLat:null, ladfrl:null, landUse:[], parcelProps:null, projected:null, rect:null, areaM2:0 };
-
-  // ---------- satellite map (VWorld WMTS + Leaflet) ----------
-  var leafletMap = null, leafletPolygon = null, leafletMarker = null;
-  function updateMap(){
-    var el = document.getElementById('mapview');
-    if(!el || typeof L === 'undefined') return;
-    if(!leafletMap){
-      leafletMap = L.map(el, { attributionControl:true, zoomControl:true });
-      L.tileLayer('https://api.vworld.kr/req/wmts/1.0.0/' + VWORLD_KEY + '/Satellite/{z}/{y}/{x}.jpeg', {
-        maxZoom: 19, minZoom: 6,
-        attribution: '© VWorld 위성영상'
-      }).addTo(leafletMap);
-    }
-    if(leafletPolygon){ leafletMap.removeLayer(leafletPolygon); leafletPolygon = null; }
-    if(leafletMarker){ leafletMap.removeLayer(leafletMarker); leafletMarker = null; }
-
-    if(state.polygonPtsLonLat && state.polygonPtsLonLat.length >= 3){
-      var latlngs = state.polygonPtsLonLat.map(function(p){ return [p[1], p[0]]; });
-      leafletPolygon = L.polygon(latlngs, { color:'#E08A2C', weight:3, fillColor:'#E08A2C', fillOpacity:0.22 }).addTo(leafletMap);
-      leafletMap.fitBounds(leafletPolygon.getBounds(), { padding:[28,28], maxZoom:19 });
-    } else if(state.point){
-      leafletMarker = L.circleMarker([state.point.y, state.point.x], { radius:8, color:'#E08A2C', weight:3, fillOpacity:0.5 }).addTo(leafletMap);
-      leafletMap.setView([state.point.y, state.point.x], 18);
-    }
-    setTimeout(function(){ if(leafletMap) leafletMap.invalidateSize(); }, 60);
+  function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function kv(k,v){ return '<div class="kv"><span class="k">'+escapeHtml(k)+'</span><span class="v">'+escapeHtml(v)+'</span></div>'; }
+  function metricBox(lbl, val, unit, wide){
+    return '<div class="metric" style="'+(wide?'grid-column: span 2;':'')+'"><div class="lbl">'+escapeHtml(lbl)+'</div><div class="val">'+escapeHtml(val)+(unit?'<span class="unit">'+escapeHtml(unit)+'</span>':'')+'</div></div>';
   }
+
+  // ---------- state: a list of parcels, combined into one analysis ----------
+  var state = { parcels: [], combined: { lat0:null, rect:null, areaM2:0 } };
 
   // ---------- DOM refs ----------
   var addrInput = document.getElementById('addrInput');
   var dropdown = document.getElementById('dropdown');
   var statusEl = document.getElementById('status');
   var resultsEl = document.getElementById('results');
+  var parcelChipsEl = document.getElementById('parcelChips');
 
-  // ---------- search ----------
+  function setStatus(msg, isErr){
+    statusEl.textContent = msg || '';
+    statusEl.className = isErr ? 'err' : '';
+  }
+
+  // ---------- address search ----------
   var searchTimer = null;
   addrInput.addEventListener('input', function(){
     var q = addrInput.value.trim();
@@ -511,39 +538,64 @@ a{color:var(--accent);}
     Array.prototype.forEach.call(dropdown.querySelectorAll('.item'), function(el){
       el.addEventListener('click', function(){
         var idx = +el.getAttribute('data-idx');
-        selectItem(items[idx]);
+        addParcel(items[idx]);
       });
     });
   }
 
-  function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
-
-  function selectItem(it){
+  // ---------- parcel list management ----------
+  function addParcel(item){
     dropdown.classList.add('hidden');
-    var isRoad = it.address.category === 'road';
-    var text = isRoad ? (it.address.road || it.address.parcel) : (it.address.parcel || it.address.road);
-    addrInput.value = text;
-    state.pnu = it.id;
-    state.point = { x: parseFloat(it.point.x), y: parseFloat(it.point.y) };
-    state.addressText = text;
-    loadParcel();
+    var pnu = item.id;
+    if(state.parcels.some(function(p){ return p.pnu === pnu; })){
+      setStatus('이미 추가된 필지예요.', true);
+      setTimeout(function(){ setStatus(''); }, 2000);
+      return;
+    }
+    var isRoad = item.address.category === 'road';
+    var text = isRoad ? (item.address.road || item.address.parcel) : (item.address.parcel || item.address.road);
+    var p = { pnu: pnu, point: { x: parseFloat(item.point.x), y: parseFloat(item.point.y) }, addressText: text, loading: true, error: false };
+    state.parcels.push(p);
+    addrInput.value = '';
+    renderChips();
+    fetchParcelData(p).then(function(){
+      p.loading = false;
+      recomputeAll();
+    }).catch(function(){
+      p.loading = false; p.error = true;
+      recomputeAll();
+    });
   }
 
-  // ---------- load parcel data ----------
-  function setStatus(msg, isErr){
-    statusEl.textContent = msg || '';
-    statusEl.className = isErr ? 'err' : '';
+  function removeParcel(pnu){
+    state.parcels = state.parcels.filter(function(p){ return p.pnu !== pnu; });
+    recomputeAll();
   }
 
-  function loadParcel(){
-    resultsEl.classList.add('hidden');
+  function renderChips(){
+    parcelChipsEl.innerHTML = state.parcels.map(function(p){
+      var cls = 'parcelchip' + (p.loading?' loading':'') + (p.error?' error':'');
+      var label = p.loading ? (p.addressText + ' · 조회중…') : (p.error ? (p.addressText + ' · 조회실패') : (p.addressText + (p.ladfrl && p.ladfrl.mnnmSlno ? '' : '')));
+      return '<div class="'+cls+'" data-pnu="'+escapeHtml(p.pnu)+'">'+
+        '<span>'+escapeHtml(label)+'</span>'+
+        '<button type="button" data-pnu="'+escapeHtml(p.pnu)+'" title="제거">×</button></div>';
+    }).join('') + (state.parcels.length ? '<button type="button" class="clearallbtn" id="clearAllBtn">전체 초기화</button>' : '');
+    Array.prototype.forEach.call(parcelChipsEl.querySelectorAll('button[data-pnu]'), function(btn){
+      btn.addEventListener('click', function(){ removeParcel(btn.getAttribute('data-pnu')); });
+    });
+    var clearBtn = document.getElementById('clearAllBtn');
+    if(clearBtn) clearBtn.addEventListener('click', function(){ state.parcels = []; recomputeAll(); });
+  }
+
+  // ---------- fetch one parcel's data ----------
+  function fetchParcelData(p){
     setStatus('필지 정보를 조회하는 중입니다…');
-    Promise.allSettled([
-      vworldLadfrl(state.pnu),
-      vworldLandUse(state.pnu),
-      vworldParcelGeom(state.pnu),
-      vworldLandChar(state.pnu),
-      vworldLandPrice(state.pnu)
+    return Promise.allSettled([
+      vworldLadfrl(p.pnu),
+      vworldLandUse(p.pnu),
+      vworldParcelGeom(p.pnu),
+      vworldLandChar(p.pnu),
+      vworldLandPrice(p.pnu)
     ]).then(function(res){
       var ladfrlRes = res[0].status==='fulfilled' ? res[0].value : null;
       var landUseRes = res[1].status==='fulfilled' ? res[1].value : null;
@@ -551,19 +603,19 @@ a{color:var(--accent);}
       var landCharRes = res[3].status==='fulfilled' ? res[3].value : null;
       var landPriceRes = res[4].status==='fulfilled' ? res[4].value : null;
 
-      state.ladfrl = null;
+      p.ladfrl = null;
       if(ladfrlRes && ladfrlRes.ladfrlVOList && ladfrlRes.ladfrlVOList.ladfrlVOList && ladfrlRes.ladfrlVOList.ladfrlVOList.length){
-        state.ladfrl = ladfrlRes.ladfrlVOList.ladfrlVOList[0];
+        p.ladfrl = ladfrlRes.ladfrlVOList.ladfrlVOList[0];
       }
-      state.landUse = (landUseRes && landUseRes.landUses && landUseRes.landUses.field) || [];
+      p.landUse = (landUseRes && landUseRes.landUses && landUseRes.landUses.field) || [];
 
-      state.parcelProps = null;
-      state.polygonPtsLonLat = null;
+      p.parcelProps = null;
+      p.polygonPtsLonLat = null;
       if(geomRes && geomRes.response && geomRes.response.status === 'OK'){
         var feats = geomRes.response.result && geomRes.response.result.featureCollection && geomRes.response.result.featureCollection.features;
         if(feats && feats.length){
           var feat = feats[0];
-          state.parcelProps = feat.properties || null;
+          p.parcelProps = feat.properties || null;
           var geom = feat.geometry;
           var outer = null;
           if(geom.type === 'Polygon'){ outer = geom.coordinates[0]; }
@@ -575,42 +627,97 @@ a{color:var(--accent);}
             });
             outer = best;
           }
-          state.polygonPtsLonLat = outer;
+          p.polygonPtsLonLat = outer;
         }
       }
 
-      state.extraChar = (landCharRes && landCharRes.landCharacteristicss && landCharRes.landCharacteristicss.field && landCharRes.landCharacteristicss.field[0]) || null;
-      state.extraPrice = (landPriceRes && landPriceRes.indvdLandPrices && landPriceRes.indvdLandPrices.field && landPriceRes.indvdLandPrices.field[0]) || null;
-
-      computeGeometry();
-      resultsEl.classList.remove('hidden');
-      render();
-      setStatus('');
-      updateMap();
+      p.extraChar = (landCharRes && landCharRes.landCharacteristicss && landCharRes.landCharacteristicss.field && landCharRes.landCharacteristicss.field[0]) || null;
+      p.extraPrice = (landPriceRes && landPriceRes.indvdLandPrices && landPriceRes.indvdLandPrices.field && landPriceRes.indvdLandPrices.field[0]) || null;
     });
   }
 
-  // ---------- geometry computation ----------
-  function computeGeometry(){
-    state.projected = null; state.rect = null; state.areaM2 = 0;
-    if(!state.polygonPtsLonLat || state.polygonPtsLonLat.length < 3) return;
-    var lat0 = state.polygonPtsLonLat.reduce(function(s,p){return s+p[1];},0) / state.polygonPtsLonLat.length;
-    var lon0 = state.polygonPtsLonLat.reduce(function(s,p){return s+p[0];},0) / state.polygonPtsLonLat.length;
-    var proj = state.polygonPtsLonLat.map(function(p){ return toXY(p[0], p[1], lon0, lat0); });
-    state.projected = proj;
-    state.areaM2 = polygonAreaXY(proj);
-    var hull = convexHull(proj);
-    state.rect = minAreaRect(hull);
-    state.lat0 = lat0;
+  // ---------- combined geometry across all parcels ----------
+  function computeCombinedGeometry(){
+    var withGeom = state.parcels.filter(function(p){ return p.polygonPtsLonLat && p.polygonPtsLonLat.length >= 3; });
+    if(!withGeom.length){
+      state.combined = { lat0:null, rect:null, areaM2:0 };
+      state.parcels.forEach(function(p){ p.projected=null; p.areaM2=0; });
+      return;
+    }
+    var allPts = [];
+    withGeom.forEach(function(p){ allPts = allPts.concat(p.polygonPtsLonLat); });
+    var lat0 = allPts.reduce(function(s,pt){return s+pt[1];},0) / allPts.length;
+    var lon0 = allPts.reduce(function(s,pt){return s+pt[0];},0) / allPts.length;
+
+    var allProjected = [];
+    state.parcels.forEach(function(p){
+      if(p.polygonPtsLonLat && p.polygonPtsLonLat.length >= 3){
+        p.projected = p.polygonPtsLonLat.map(function(pt){ return toXY(pt[0], pt[1], lon0, lat0); });
+        p.areaM2 = polygonAreaXY(p.projected);
+        allProjected = allProjected.concat(p.projected);
+      } else {
+        p.projected = null; p.areaM2 = 0;
+      }
+    });
+    var totalArea = state.parcels.reduce(function(s,p){ return s + (p.areaM2||0); }, 0);
+    var hull = convexHull(allProjected);
+    var rect = minAreaRect(hull);
+    state.combined = { lat0: lat0, rect: rect, areaM2: totalArea };
   }
 
-  // ---------- checklist / metrics / cards ----------
+  function recomputeAll(){
+    renderChips();
+    if(!state.parcels.length){
+      resultsEl.classList.add('hidden');
+      setStatus('');
+      return;
+    }
+    computeCombinedGeometry();
+    resultsEl.classList.remove('hidden');
+    render();
+    setStatus('');
+    updateMap();
+  }
+
+  // ---------- satellite map (VWorld WMTS + Leaflet), draws every added parcel ----------
+  var leafletMap = null, leafletLayers = [];
+  function updateMap(){
+    var el = document.getElementById('mapview');
+    if(!el || typeof L === 'undefined') return;
+    if(!leafletMap){
+      leafletMap = L.map(el, { attributionControl:true, zoomControl:true });
+      L.tileLayer('https://api.vworld.kr/req/wmts/1.0.0/' + VWORLD_KEY + '/Satellite/{z}/{y}/{x}.jpeg', {
+        maxZoom: 19, minZoom: 6,
+        attribution: '© VWorld 위성영상'
+      }).addTo(leafletMap);
+    }
+    leafletLayers.forEach(function(l){ leafletMap.removeLayer(l); });
+    leafletLayers = [];
+
+    var bounds = null;
+    state.parcels.forEach(function(p){
+      if(p.polygonPtsLonLat && p.polygonPtsLonLat.length >= 3){
+        var latlngs = p.polygonPtsLonLat.map(function(pt){ return [pt[1], pt[0]]; });
+        var poly = L.polygon(latlngs, { color:'#E08A2C', weight:3, fillColor:'#E08A2C', fillOpacity:0.22 }).addTo(leafletMap);
+        leafletLayers.push(poly);
+        bounds = bounds ? bounds.extend(poly.getBounds()) : poly.getBounds();
+      } else if(p.point){
+        var mk = L.circleMarker([p.point.y, p.point.x], { radius:8, color:'#E08A2C', weight:3, fillOpacity:0.5 }).addTo(leafletMap);
+        leafletLayers.push(mk);
+        var b2 = L.latLngBounds([p.point.y,p.point.x],[p.point.y,p.point.x]);
+        bounds = bounds ? bounds.extend(b2) : b2;
+      }
+    });
+    if(bounds) leafletMap.fitBounds(bounds, { padding:[28,28], maxZoom:19 });
+    setTimeout(function(){ if(leafletMap) leafletMap.invalidateSize(); }, 60);
+  }
+
+  // ---------- checklist chip / zone explain dictionary ----------
   function chip(title, statusText, cls, hint){
     return '<div class="chip"><div class="t">'+escapeHtml(title)+'</div><span class="s '+cls+'">'+escapeHtml(statusText)+'</span>'+
       (hint ? '<div class="hint">'+escapeHtml(hint)+'</div>' : '') + '</div>';
   }
 
-  // 용도지역/지구 이름별 1줄 설명 — "이게 왜 뜨는지" 바로 이해할 수 있도록
   var ZONE_EXPLAIN = {
     '준보전산지': '산지관리법상 "보전산지"가 아닌 산지입니다. 다만 같은 법 제2조는 지목이 전·답·과수원·목장용지인 토지를 산지 정의에서 제외하므로, 지목이 이미 전·답 등으로 바뀌어 있는데도 이 항목이 뜬다면 지적(지목)과 산림청 산지구분도의 갱신 시점이 달라 생긴 불일치일 가능성이 있습니다 — 아래 참고.',
     '보전산지': '임업·공익 목적으로 보전이 필요한 산지로 지정되어, 개발행위(태양광 포함)가 크게 제한됩니다. (지목이 전·답·과수원·목장용지면 법상 산지 제외 대상이니 아래 참고)',
@@ -628,30 +735,102 @@ a{color:var(--accent);}
   };
   var SANJI_NAMES = {'준보전산지':1,'보전산지':1,'임업용산지':1,'공익용산지':1};
   var SANJI_EXCLUDED_JIMOK = {'전':1,'답':1,'과수원':1,'목장용지':1};
-  function zoneExplainHtml(zones){
-    var seen = {};
-    var lines = [];
-    var hasSanji = false;
-    zones.forEach(function(z){
-      var name = z.prposAreaDstrcCodeNm;
-      if(name && SANJI_NAMES[name]) hasSanji = true;
-      if(name && ZONE_EXPLAIN[name] && !seen[name]){
-        seen[name] = true;
-        lines.push('<div class="zonenote">· <b>'+escapeHtml(name)+'</b> — '+escapeHtml(ZONE_EXPLAIN[name])+'</div>');
+  function jimokOf(p){ return (p.ladfrl && p.ladfrl.lndcgrCodeNm) || (p.extraChar && p.extraChar.lndcgrCodeNm) || ''; }
+  function jibunOf(p){ return (p.ladfrl && p.ladfrl.mnnmSlno) || (p.parcelProps && p.parcelProps.jibun) || p.addressText; }
+
+  function zoneExplainHtml(parcels){
+    var seen = {}, lines = [];
+    parcels.forEach(function(p){
+      var hasSanji = false;
+      (p.landUse||[]).forEach(function(z){
+        var name = z.prposAreaDstrcCodeNm;
+        if(name && SANJI_NAMES[name]) hasSanji = true;
+        if(name && ZONE_EXPLAIN[name] && !seen[name]){
+          seen[name] = true;
+          lines.push('<div class="zonenote">· <b>'+escapeHtml(name)+'</b> — '+escapeHtml(ZONE_EXPLAIN[name])+'</div>');
+        }
+      });
+      var jm = jimokOf(p);
+      if(hasSanji && SANJI_EXCLUDED_JIMOK[jm]){
+        lines.push('<div class="zonenote" style="color:var(--warn-ink);">⚠ <b>'+escapeHtml(jibunOf(p))+'</b> 필지는 지목이 「'+escapeHtml(jm)+'」로, 산지관리법 제2조상 산지 정의에서 제외되는 지목입니다. 그런데도 산지구분(준보전산지 등)이 함께 표시되는 건, 지적공부(지목)와 산림청 산지구분도가 서로 별도로 관리·갱신되는 시스템이라 갱신 시차가 있거나(과거 임야 → 산지전용허가 후 지목변경, 산지구분도 미갱신), 정식 산지전용 절차 없이 지목만 변경된 경우일 수 있습니다. 관할 시·군·구 산림부서에 재확인하세요.</div>');
       }
     });
-    var jimok = (state.ladfrl && state.ladfrl.lndcgrCodeNm) || (state.extraChar && state.extraChar.lndcgrCodeNm) || '';
-    if(hasSanji && SANJI_EXCLUDED_JIMOK[jimok]){
-      lines.push('<div class="zonenote" style="color:var(--warn-ink);">⚠ 이 필지는 지목이 「'+escapeHtml(jimok)+'」로, 산지관리법 제2조상 산지 정의에서 제외되는 지목입니다. 그런데도 산지구분(준보전산지 등)이 함께 표시되는 건, 지적공부(지목)와 산림청 산지구분도가 서로 별도로 관리·갱신되는 시스템이라 갱신 시차가 있거나(과거 임야 → 산지전용허가 후 지목변경, 산지구분도 미갱신), 정식 산지전용 절차 없이 지목만 변경된 경우일 수 있습니다. 어느 쪽인지는 토지이동(변동)내역·산지전용허가 이력으로 확인되며, 실제 태양광 설치 시 산지전용허가 대상 여부는 관할 시·군·구 산림부서에 반드시 재확인하세요.</div>');
-    }
     return lines.join('');
   }
 
+  // ---------- 농지전용부담금(추정) ----------
+  var FARMLAND_JIMOK = {'전':1,'답':1,'과수원':1};
+  function basePricePerSqm(p){
+    if(p.extraChar && p.extraChar.pblntfPclnd) return +p.extraChar.pblntfPclnd;
+    if(p.extraPrice && p.extraPrice.pblntfPclnd) return +p.extraPrice.pblntfPclnd;
+    if(p.parcelProps && p.parcelProps.jiga) return +p.parcelProps.jiga;
+    return null;
+  }
+  function detectJinheung(p){
+    return (p.landUse||[]).some(function(z){ return (z.prposAreaDstrcCodeNm||'').indexOf('농업진흥지역') >= 0; });
+  }
+
+  function renderFarmlandTable(){
+    var body = document.getElementById('farmlandBody');
+    var note = document.getElementById('farmlandNote');
+    var cap = parseFloat(document.getElementById('farmlandCap').value) || 50000;
+    var zoneSel = document.getElementById('farmlandZone').value;
+    var rows = '';
+    var grandTotal = 0, anyFarmland = false, anyPriced = false;
+
+    state.parcels.forEach(function(p){
+      var jm = jimokOf(p);
+      if(!FARMLAND_JIMOK[jm]) return;
+      anyFarmland = true;
+      var price = basePricePerSqm(p);
+      var area = p.areaM2 || (p.ladfrl ? parseFloat(p.ladfrl.lndpclAr) : 0) || 0;
+      if(price == null){
+        rows += '<tr><td class="mono">'+escapeHtml(jibunOf(p))+'</td><td>'+escapeHtml(jm)+'</td><td class="mono">'+fmt(area,0)+'</td><td colspan="4">공시지가 조회 불가 — 산정 불가</td></tr>';
+        return;
+      }
+      anyPriced = true;
+      var isJinheung = zoneSel === 'auto' ? detectJinheung(p) : (zoneSel === 'in');
+      var rate = isJinheung ? 0.30 : 0.20;
+      var perSqm = Math.min(price * rate, cap);
+      var subtotal = perSqm * area;
+      grandTotal += subtotal;
+      rows += '<tr><td class="mono">'+escapeHtml(jibunOf(p))+'</td><td>'+escapeHtml(jm)+'</td><td class="mono">'+fmt(area,0)+'</td><td class="mono">'+fmt(price,0)+'</td><td class="mono">'+(rate*100).toFixed(0)+'%'+(zoneSel==='auto'?(isJinheung?' (진흥)':' (비진흥)'):'')+'</td><td class="mono">'+fmt(perSqm,0)+'</td><td class="mono">'+fmt(subtotal,0)+'</td></tr>';
+    });
+
+    if(!anyFarmland){
+      body.innerHTML = '<tr><td colspan="7">추가된 필지 중 농지(전·답·과수원)가 없어 해당 없음</td></tr>';
+      note.textContent = '';
+      return;
+    }
+    if(anyPriced){
+      rows += '<tr class="totalrow"><td colspan="6">합계(농지전용부담금 추정 총액)</td><td class="mono">'+fmt(grandTotal,0)+' 원</td></tr>';
+    }
+    body.innerHTML = rows;
+    note.textContent = '농지법 시행규칙 기준: 개별공시지가 × (농업진흥지역 안 30% / 밖 20%), ㎡당 상한 '+fmt(cap,0)+'원. 필지별 실측(GIS) 면적 전체를 전용하는 것으로 가정한 값입니다. 실제 부과액은 농지관리위원회·시군구 심사 결과에 따라 달라질 수 있습니다.';
+  }
+  ['farmlandZone','farmlandCap'].forEach(function(id){
+    document.getElementById(id).addEventListener('input', renderFarmlandTable);
+    document.getElementById(id).addEventListener('change', renderFarmlandTable);
+  });
+
+  // ---------- main render: metrics, checklist, per-parcel tables ----------
   function render(){
+    var n = state.parcels.length;
+    var loaded = state.parcels.filter(function(p){ return !p.loading; });
+
+    var totalAreaM2 = state.combined.areaM2 || 0;
+    var totalRegistered = loaded.reduce(function(s,p){ return s + (p.ladfrl ? (parseFloat(p.ladfrl.lndpclAr)||0) : 0); }, 0);
+    var jimokSet = {};
+    loaded.forEach(function(p){ var j=jimokOf(p); if(j) jimokSet[j]=1; });
+    var jimokKeys = Object.keys(jimokSet);
+    var jimokText = jimokKeys.length===0 ? '-' : (jimokKeys.length===1 ? jimokKeys[0] : (jimokKeys.length+'종 혼합('+jimokKeys.join(',')+')'));
+
+    var totalZones = loaded.reduce(function(s,p){ return s + (p.landUse?p.landUse.length:0); }, 0);
+
     var railHtml = '';
-    railHtml += chip('토지유형', state.ladfrl ? (state.ladfrl.lndcgrCodeNm || '확인됨') : '조회 안됨', state.ladfrl ? 's-ok' : 's-warn',
+    railHtml += chip('토지유형', jimokText, jimokKeys.length ? 's-ok' : 's-warn',
       '지목이 대·전·답·잡종지 등이면 대체로 가능, 농지·산지면 전용허가가 추가로 필요합니다.');
-    railHtml += chip('용도지역·지구', state.landUse.length ? (state.landUse.length+'건 확인필요') : '해당없음', state.landUse.length ? 's-warn' : 's-ok',
+    railHtml += chip('용도지역·지구', totalZones ? (totalZones+'건 확인필요') : '해당없음', totalZones ? 's-warn' : 's-ok',
       '개발제한구역·보전산지·공익용산지 등이면 불가 가능성이 높고, 계획관리·보전관리지역 등은 조건부 가능인 경우가 많습니다. 아래 02번 항목별 설명 참고.');
     railHtml += chip('이격거리', '지자체 확인 필요', 's-neutral',
       '주거지역과 200m(태양광 국가상한, 2026.9.18~) 이내인지, 관할 조례가 이보다 더 짧게 정해뒀는지 확인하세요.');
@@ -659,145 +838,72 @@ a{color:var(--accent);}
       '인근 변전소/배전선로(D/L) 여유용량이 설치하려는 용량(kW)보다 큰지 한전에서 확인하세요.');
     document.getElementById('checklistRail').innerHTML = railHtml;
 
-    var areaPyeong = pyeong(state.areaM2);
-    var registeredArea = state.ladfrl ? parseFloat(state.ladfrl.lndpclAr) : null;
-
     var metrics = '';
-    metrics += metricBox('주소', state.addressText || '-', '', true);
-    metrics += metricBox('지목', (state.ladfrl && state.ladfrl.lndcgrCodeNm) || '-', '', false);
-    metrics += metricBox('실측(GIS) 면적', fmt(state.areaM2,0), '㎡ · ' + fmt(areaPyeong,0) + '평', false);
-    metrics += metricBox('토지대장 등록면적', registeredArea!=null ? fmt(registeredArea,0) : '-', registeredArea!=null?'㎡':'', false);
+    metrics += metricBox('필지 수', fmt(n,0), '개', false);
+    metrics += metricBox('지목', jimokText, '', false);
+    metrics += metricBox('합계 실측(GIS)면적', fmt(totalAreaM2,0), '㎡ · ' + fmt(pyeong(totalAreaM2),0) + '평', false);
+    metrics += metricBox('합계 등록면적', totalRegistered ? fmt(totalRegistered,0) : '-', totalRegistered?'㎡':'', false);
     document.getElementById('metricsRow').innerHTML = metrics;
 
-    // 01 land info
-    var li = '';
-    li += kv('법정동', (state.ladfrl && state.ladfrl.ldCodeNm) || '-');
-    li += kv('지번', (state.ladfrl && state.ladfrl.mnnmSlno) || (state.parcelProps && state.parcelProps.jibun) || '-');
-    li += kv('지목', (state.ladfrl && state.ladfrl.lndcgrCodeNm) || '-');
-    li += kv('소유구분', (state.ladfrl && state.ladfrl.posesnSeCodeNm) || '-');
-    li += kv('공유인수', (state.ladfrl && state.ladfrl.cnrsPsnCo) || '-');
-    li += kv('토지대장 등록면적', registeredArea!=null ? (fmt(registeredArea,0)+' ㎡') : '-');
-    li += kv('실측(GIS) 면적', state.areaM2 ? (fmt(state.areaM2,0)+' ㎡ ('+fmt(areaPyeong,1)+'평)') : '-');
-    li += kv('참고 지가(원/㎡)', (state.parcelProps && state.parcelProps.jiga) ? (fmt(+state.parcelProps.jiga,0)+' 원 · '+(state.parcelProps.gosi_year||'')+'년 기준(연속지적도 속성)') : '-');
-    li += kv('최근 정리일', (state.ladfrl && state.ladfrl.lastUpdtDt) || '-');
-    document.getElementById('landInfoGrid').innerHTML = li;
+    document.getElementById('parcelCountText').textContent = n;
 
-    // 02 zone table
-    var tbody = document.getElementById('zoneTableBody');
+    // 01 land info table
+    var li = state.parcels.map(function(p){
+      if(p.loading) return '<tr><td class="mono">'+escapeHtml(p.addressText)+'</td><td colspan="4">조회 중…</td></tr>';
+      if(p.error) return '<tr><td class="mono">'+escapeHtml(p.addressText)+'</td><td colspan="4">조회 실패</td></tr>';
+      var reg = p.ladfrl ? parseFloat(p.ladfrl.lndpclAr) : null;
+      return '<tr><td class="mono">'+escapeHtml(jibunOf(p))+'</td><td>'+escapeHtml(jimokOf(p)||'-')+'</td>'+
+        '<td>'+escapeHtml((p.ladfrl&&p.ladfrl.posesnSeCodeNm)||'-')+'</td>'+
+        '<td class="mono">'+(reg!=null?fmt(reg,0):'-')+'</td>'+
+        '<td class="mono">'+(p.areaM2?fmt(p.areaM2,0):'-')+'</td></tr>';
+    }).join('');
+    if(loaded.length > 1){
+      li += '<tr class="totalrow"><td colspan="3">합계</td><td class="mono">'+fmt(totalRegistered,0)+'</td><td class="mono">'+fmt(totalAreaM2,0)+'</td></tr>';
+    }
+    document.getElementById('landInfoBody').innerHTML = li;
+
+    // 02 zone table (per parcel, flattened)
+    var zoneRows = [];
+    state.parcels.forEach(function(p){
+      (p.landUse||[]).forEach(function(z){
+        zoneRows.push('<tr><td class="mono">'+escapeHtml(jibunOf(p))+'</td><td>'+escapeHtml(z.prposAreaDstrcCodeNm||'-')+'</td><td>'+escapeHtml(z.cnflcAtNm||'-')+'</td><td class="mono">'+escapeHtml(z.registDt||'-')+'</td></tr>');
+      });
+    });
     var zoneEmpty = document.getElementById('zoneEmpty');
-    if(state.landUse.length){
+    if(zoneRows.length){
       zoneEmpty.classList.add('hidden');
-      tbody.innerHTML = state.landUse.map(function(z){
-        return '<tr><td>'+escapeHtml(z.prposAreaDstrcCodeNm||'-')+'</td><td>'+escapeHtml(z.cnflcAtNm||'-')+'</td><td class="mono">'+escapeHtml(z.registDt||'-')+'</td></tr>';
-      }).join('');
+      document.getElementById('zoneTableBody').innerHTML = zoneRows.join('');
     } else {
-      tbody.innerHTML = '';
+      document.getElementById('zoneTableBody').innerHTML = '';
       zoneEmpty.classList.remove('hidden');
     }
-    document.getElementById('zoneExplain').innerHTML = zoneExplainHtml(state.landUse);
+    document.getElementById('zoneExplain').innerHTML = zoneExplainHtml(state.parcels);
 
-    // 03 extra — 토지특성정보 / 개별공시지가 (실제 필드명 확인됨: landCharacteristicss.field / indvdLandPrices.field)
-    var ex = '';
-    if(state.extraChar){
-      var c = state.extraChar;
-      ex += kv('기준연도', (c.stdrYear||'-') + '년');
-      ex += kv('지형고저', c.tpgrphHgCodeNm || '-');
-      ex += kv('형상', c.tpgrphFrmCodeNm || '-');
-      ex += kv('도로조건', c.roadSideCodeNm || '-');
-      ex += kv('용도지역1', c.prposArea1Nm || '-');
-      ex += kv('용도지역2', c.prposArea2Nm || '-');
-      ex += kv('토지이용상황', c.ladUseSittnNm || '-');
-      ex += kv('개별공시지가(원/㎡)', c.pblntfPclnd ? fmt(+c.pblntfPclnd,0)+' 원' : '-');
-    } else {
-      ex += kv('토지특성정보(지형·형상·도로조건 등)', '이 필지는 해당 자료가 없습니다 (공용시설지 등 일부 필지는 미공시)');
-    }
-    if(state.extraPrice){
-      var pr = state.extraPrice;
-      ex += kv('개별공시지가 공시일자', pr.pblntfDe || '-');
-      ex += kv('개별공시지가(원/㎡, 재조회)', pr.pblntfPclnd ? fmt(+pr.pblntfPclnd,0)+' 원 · '+(pr.stdrYear||'')+'년' : '-');
-    } else if(!state.extraChar){
-      ex += kv('개별공시지가(연도별 조회)', '이 필지는 해당 자료가 없습니다');
-    }
-    document.getElementById('extraInfoGrid').innerHTML = ex;
-    document.getElementById('farmlandArea').value = state.areaM2 ? Math.round(state.areaM2) : '';
-    renderFarmland();
+    // 03 per-parcel characteristics table
+    var charRows = state.parcels.map(function(p){
+      if(p.loading || p.error) return '';
+      var priceTxt = p.extraChar && p.extraChar.pblntfPclnd ? fmt(+p.extraChar.pblntfPclnd,0) : (p.extraPrice && p.extraPrice.pblntfPclnd ? fmt(+p.extraPrice.pblntfPclnd,0) : '-');
+      return '<tr><td class="mono">'+escapeHtml(jibunOf(p))+'</td><td>'+escapeHtml(jimokOf(p)||'-')+'</td>'+
+        '<td class="mono">'+priceTxt+'</td>'+
+        '<td>'+escapeHtml((p.extraChar&&p.extraChar.tpgrphHgCodeNm)||'-')+'</td>'+
+        '<td>'+escapeHtml((p.extraChar&&p.extraChar.tpgrphFrmCodeNm)||'-')+'</td></tr>';
+    }).join('');
+    document.getElementById('charTableBody').innerHTML = charRows || '<tr><td colspan="5">필지를 추가하면 표시됩니다</td></tr>';
+    renderFarmlandTable();
 
-    // 05 kepco copy text
-    var copyText = (state.addressText||'') + (state.ladfrl && state.ladfrl.mnnmSlno ? (' ('+state.ladfrl.ldCodeNm+' '+state.ladfrl.mnnmSlno+')') : '');
+    // 05 kepco copy text — every parcel's address, one per line
+    var copyText = state.parcels.map(function(p){ return p.addressText; }).join('\n');
     document.getElementById('addrCopyText').textContent = copyText || '-';
 
-    // 06 ordinance
-    var sgg = (state.ladfrl && state.ladfrl.ldCodeNm) ? state.ladfrl.ldCodeNm.split(' ').slice(0,2).join(' ') : '';
+    // 06 ordinance — based on the first parcel's 시군구 (adjoining parcels are normally in the same 시군구)
+    var first = loaded[0];
+    var sgg = (first && first.ladfrl && first.ladfrl.ldCodeNm) ? first.ladfrl.ldCodeNm.split(' ').slice(0,2).join(' ') : '';
     document.getElementById('ordinanceCopyText').textContent = (sgg ? (sgg + ' ') : '') + '태양광 발전시설 이격거리 조례';
 
     runSimulation();
   }
 
-  function metricBox(lbl, val, unit, wide){
-    return '<div class="metric'+(wide?'':'')+'" style="'+(wide?'grid-column: span 2;':'')+'"><div class="lbl">'+escapeHtml(lbl)+'</div><div class="val">'+escapeHtml(val)+(unit?'<span class="unit">'+escapeHtml(unit)+'</span>':'')+'</div></div>';
-  }
-  function kv(k,v){ return '<div class="kv"><span class="k">'+escapeHtml(k)+'</span><span class="v">'+escapeHtml(v)+'</span></div>'; }
-  function renderGenericKV(obj){
-    var skip = {resultCode:1,pageNo:1,numOfRows:1,totalCount:1,resultMsg:1,manageNo:1,regstrSeCode:1,regstrSeCodeNm:1,lastUpdtDt:1,pnu:1};
-    var out = '';
-    Object.keys(obj).forEach(function(k){
-      if(skip[k]) return;
-      out += kv(k, obj[k]);
-    });
-    return out;
-  }
-
-  // ---------- 농지전용부담금(추정) ----------
-  var FARMLAND_JIMOK = {'전':1,'답':1,'과수원':1};
-  function basePricePerSqm(){
-    if(state.extraChar && state.extraChar.pblntfPclnd) return +state.extraChar.pblntfPclnd;
-    if(state.extraPrice && state.extraPrice.pblntfPclnd) return +state.extraPrice.pblntfPclnd;
-    if(state.parcelProps && state.parcelProps.jiga) return +state.parcelProps.jiga;
-    return null;
-  }
-  function detectJinheung(){
-    return state.landUse.some(function(z){ return (z.prposAreaDstrcCodeNm||'').indexOf('농업진흥지역') >= 0; });
-  }
-  function renderFarmland(){
-    var jimok = (state.ladfrl && state.ladfrl.lndcgrCodeNm) || (state.extraChar && state.extraChar.lndcgrCodeNm) || '';
-    var isFarmland = !!FARMLAND_JIMOK[jimok];
-    var grid = document.getElementById('farmlandGrid');
-    var note = document.getElementById('farmlandNote');
-
-    if(!isFarmland){
-      grid.innerHTML = kv('농지전용부담금', '지목이 「'+(jimok||'-')+'」로 농지(전·답·과수원)가 아니어 해당 없음');
-      note.textContent = '';
-      return;
-    }
-    var price = basePricePerSqm();
-    var area = parseFloat(document.getElementById('farmlandArea').value) || 0;
-    var cap = parseFloat(document.getElementById('farmlandCap').value) || 50000;
-    var zoneSel = document.getElementById('farmlandZone').value;
-    var isJinheung = zoneSel === 'auto' ? detectJinheung() : (zoneSel === 'in');
-    var rate = isJinheung ? 0.30 : 0.20;
-
-    if(price == null){
-      grid.innerHTML = kv('농지전용부담금', '개별공시지가를 조회할 수 없어 산정 불가');
-      note.textContent = '';
-      return;
-    }
-    var perSqm = Math.min(price * rate, cap);
-    var total = perSqm * area;
-
-    var html = '';
-    html += kv('적용 공시지가(원/㎡)', fmt(price,0)+' 원');
-    html += kv('부과율 (' + (zoneSel==='auto' ? '자동감지: '+(isJinheung?'진흥지역 안':'진흥지역 밖') : (isJinheung?'진흥지역 안':'진흥지역 밖')) + ')', (rate*100).toFixed(0)+'%');
-    html += kv('㎡당 부담금(상한 적용)', fmt(perSqm,0)+' 원');
-    html += kv('농지보전부담금(추정 총액)', fmt(total,0)+' 원');
-    grid.innerHTML = html;
-    note.textContent = '농지법 시행규칙 기준: 개별공시지가 × (농업진흥지역 안 30% / 밖 20%), ㎡당 상한 '+fmt(cap,0)+'원. 전용면적은 필요에 따라 직접 수정할 수 있습니다. 실제 부과액은 농지관리위원회·시군구 심사 결과에 따라 달라질 수 있습니다.';
-  }
-  ['farmlandArea','farmlandZone','farmlandCap'].forEach(function(id){
-    document.getElementById(id).addEventListener('input', renderFarmland);
-    document.getElementById(id).addEventListener('change', renderFarmland);
-  });
-
-  // ---------- module layout simulation ----------
+  // ---------- module layout simulation (combined across all parcels) ----------
   function currentModuleSpec(){
     return {
       watt: parseFloat(document.getElementById('moduleWatt').value) || 560,
@@ -824,25 +930,11 @@ a{color:var(--accent);}
     document.getElementById(id).addEventListener('input', runSimulation);
   });
 
-  // point-in-polygon (ray casting) — used to test whether a candidate module table
-  // actually falls inside the real (possibly irregular) parcel outline, not just its
-  // rectangular bounding box.
-  function pointInPolygon(pt, poly){
-    var x = pt[0], y = pt[1], inside = false;
-    for(var i=0, j=poly.length-1; i<poly.length; j=i++){
-      var xi=poly[i][0], yi=poly[i][1], xj=poly[j][0], yj=poly[j][1];
-      if(((yi>y) !== (yj>y)) && (x < (xj-xi)*(y-yi)/((yj-yi)||1e-12) + xi)) inside = !inside;
-    }
-    return inside;
-  }
-
-  // Lay out individual mounting tables (each holding `stack` modules) one by one,
-  // keeping only tables whose full footprint (all 4 corners) lies inside the actual
-  // parcel polygon — not just inside its bounding rectangle.
-  function buildLayout(rotatedPoly, rect, spec, pitch, tableDepth, longM){
-    // corners are tested inset by a tiny epsilon so a table edge that lands exactly
-    // on the parcel boundary (very common for rectangular parcels) doesn't get
-    // rejected by point-in-polygon boundary ambiguity.
+  // Lay out individual mounting tables (each holding `stack` modules) one by one, keeping
+  // only tables whose full footprint (all 4 corners) lies inside AT LEAST ONE of the added
+  // parcels' polygons — which is exactly the combined ("합쳐진") owned area, without needing
+  // to compute a merged polygon outline first.
+  function buildLayout(rotatedPolys, rect, spec, pitch, tableDepth, longM){
     var EPS = 0.01;
     var uMinX = rect.minX + spec.setback, uMaxX = rect.maxX - spec.setback;
     var uMinY = rect.minY + spec.setback, uMaxY = rect.maxY - spec.setback;
@@ -855,7 +947,7 @@ a{color:var(--accent);}
           var ix0 = x0+EPS, ix1 = Math.max(ix0, x1-EPS), iy0 = y0+EPS, iy1 = Math.max(iy0, y1-EPS);
           var corners = [[ix0,iy0],[ix1,iy0],[ix1,iy1],[ix0,iy1]];
           var ok = true;
-          for(var k=0;k<4;k++){ if(!pointInPolygon(corners[k], rotatedPoly)){ ok=false; break; } }
+          for(var k=0;k<4;k++){ if(!pointInAny(corners[k], rotatedPolys)){ ok=false; break; } }
           if(ok) tables.push({x0:x0,y0:y0,x1:x1,y1:y1});
         }
       }
@@ -866,7 +958,9 @@ a{color:var(--accent);}
   function runSimulation(){
     var svg = document.getElementById('simSvg');
     var note = document.getElementById('simNote');
-    if(!state.rect || !state.projected || !state.rect.w){
+    var rect = state.combined.rect;
+    var hasAny = state.parcels.some(function(p){ return p.projected && p.projected.length>=3; });
+    if(!rect || !rect.w || !hasAny){
       svg.innerHTML = '';
       document.getElementById('resModulesLayout').textContent = '-';
       document.getElementById('resModulesArea').textContent = '-';
@@ -879,9 +973,9 @@ a{color:var(--accent);}
     var longM = spec.longMm/1000, shortM = spec.shortMm/1000;
     var tiltRad = spec.tiltDeg * Math.PI/180;
 
-    var lat = Math.abs(state.lat0 || 36);
-    var decl = 23.45; // winter solstice solar declination
-    var sunAltDeg = 90 - lat - decl; // worst-case solar noon altitude (northern hemisphere)
+    var lat = Math.abs(state.combined.lat0 || 36);
+    var decl = 23.45;
+    var sunAltDeg = 90 - lat - decl;
     if(sunAltDeg < 5) sunAltDeg = 5;
     var sunAltRad = sunAltDeg * Math.PI/180;
 
@@ -889,14 +983,17 @@ a{color:var(--accent);}
     var tableRise = spec.stack * shortM * Math.sin(tiltRad);
     var pitch = tableDepth + (tableRise / Math.tan(sunAltRad));
 
-    var rect = state.rect;
-    var rotatedPoly = rotateAll(state.projected, rect.angle);
-    var layout = buildLayout(rotatedPoly, rect, spec, pitch, tableDepth, longM);
+    var rotatedPolys = state.parcels
+      .filter(function(p){ return p.projected && p.projected.length>=3; })
+      .map(function(p){ return rotateAll(p.projected, rect.angle); });
+
+    var layout = buildLayout(rotatedPolys, rect, spec, pitch, tableDepth, longM);
     var tableCount = layout.tables.length;
     var layoutModules = tableCount * spec.stack;
 
     var moduleAreaEach = longM * shortM;
-    var areaBasedModules = moduleAreaEach>0 ? Math.floor((state.areaM2 * (spec.usableRatioPct/100)) / moduleAreaEach) : 0;
+    var totalAreaM2 = state.combined.areaM2 || 0;
+    var areaBasedModules = moduleAreaEach>0 ? Math.floor((totalAreaM2 * (spec.usableRatioPct/100)) / moduleAreaEach) : 0;
 
     var capacityKw = (layoutModules * spec.watt) / 1000;
 
@@ -905,14 +1002,15 @@ a{color:var(--accent);}
     document.getElementById('resCapacity').textContent = fmt(capacityKw,1) + ' kWp';
     document.getElementById('resGrid').textContent = fmt(tableCount,0) + '개 × ' + spec.stack + '단';
 
-    note.textContent = '설계 기준: 위도 ' + lat.toFixed(2) + '°N 동지 태양고도 ' + sunAltDeg.toFixed(1) + '°에서 앞줄 그늘이 뒷줄에 닿지 않도록 행간(pitch) ' + pitch.toFixed(2) + 'm 적용. 각 테이블(가로 ' + longM.toFixed(2) + 'm × 세로 ' + tableDepth.toFixed(2) + 'm, ' + spec.stack + '단 모듈 ' + spec.stack + '매 탑재)의 네 꼭짓점이 실제 필지 경계 안에 들어가는지 하나씩 검사해 배치했습니다. 면적기준 참고치는 가용면적비율 ' + spec.usableRatioPct + '%만 적용한 단순 상한값입니다.';
+    var nParcels = rotatedPolys.length;
+    note.textContent = (nParcels>1 ? (nParcels+'개 필지를 하나로 합쳐 계산했습니다. ') : '') +
+      '설계 기준: 위도 ' + lat.toFixed(2) + '°N 동지 태양고도 ' + sunAltDeg.toFixed(1) + '°에서 앞줄 그늘이 뒷줄에 닿지 않도록 행간(pitch) ' + pitch.toFixed(2) + 'm 적용. 각 테이블(가로 ' + longM.toFixed(2) + 'm × 세로 ' + tableDepth.toFixed(2) + 'm, ' + spec.stack + '단 모듈 ' + spec.stack + '매 탑재)의 네 꼭짓점이 추가된 필지들 중 하나에라도 들어가는지 하나씩 검사해 배치했습니다(필지 경계선이 서로 붙어있으면 그 경계를 넘어서도 배치됩니다). 면적기준 참고치는 가용면적비율 ' + spec.usableRatioPct + '%만 적용한 단순 상한값입니다.';
 
-    drawSvg(rect, layout, tableDepth);
+    drawSvg(rect, rotatedPolys, layout, tableDepth);
   }
 
-  function drawSvg(rect, layout, tableDepth){
+  function drawSvg(rect, rotatedPolys, layout, tableDepth){
     var svg = document.getElementById('simSvg');
-    var rotated = rotateAll(state.projected, rect.angle);
     var spanX = rect.maxX-rect.minX, spanY = rect.maxY-rect.minY;
     var pad = 24, drawW = 400-2*pad, drawH = 300-2*pad;
     var scale = Math.min(drawW/Math.max(spanX,0.01), drawH/Math.max(spanY,0.01));
@@ -925,11 +1023,12 @@ a{color:var(--accent);}
     var accentColor = css.getPropertyValue('--accent').trim() || '#d97f2c';
 
     var parts = [];
-    // parcel polygon (the real, possibly irregular, outline)
-    var pd = rotated.map(function(p,i){ var s=toSvg(p[0],p[1]); return (i===0?'M':'L')+s[0].toFixed(1)+','+s[1].toFixed(1); }).join(' ') + ' Z';
-    parts.push('<path d="'+pd+'" fill="'+lineColor+'" fill-opacity="0.35" stroke="'+inkColor+'" stroke-width="1.5"/>');
+    // each parcel's own real (possibly irregular) outline
+    rotatedPolys.forEach(function(poly){
+      var pd = poly.map(function(p,i){ var s=toSvg(p[0],p[1]); return (i===0?'M':'L')+s[0].toFixed(1)+','+s[1].toFixed(1); }).join(' ') + ' Z';
+      parts.push('<path d="'+pd+'" fill="'+lineColor+'" fill-opacity="0.35" stroke="'+inkColor+'" stroke-width="1.5"/>');
+    });
 
-    // each individual module table that passed the polygon containment test
     var maxDraw = 2000;
     var tables = layout.tables;
     var n = Math.min(tables.length, maxDraw);
