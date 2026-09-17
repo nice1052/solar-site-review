@@ -192,6 +192,7 @@ a{color:var(--accent);}
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;700&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
 
 <div class="wrap">
 
@@ -252,6 +253,7 @@ a{color:var(--accent);}
           </div>
           <div id="zoneEmpty" class="note hidden">등록된 용도지역/지구 정보가 없습니다.</div>
           <div id="zoneExplain"></div>
+          <div id="zoneVerdict" class="note" style="font-weight:700;margin-top:12px;"></div>
         </div>
 
         <div class="card">
@@ -293,6 +295,13 @@ a{color:var(--accent);}
 
           <div class="settings">
             <div class="field">
+              <label>설비 구분</label>
+              <select id="facilityType">
+                <option value="general" selected>일반 태양광</option>
+                <option value="agrivoltaic">영농형 태양광 (농지 병행)</option>
+              </select>
+            </div>
+            <div class="field">
               <label>모듈 규격</label>
               <select id="modulePreset">
                 <option value="custom">직접입력</option>
@@ -322,6 +331,7 @@ a{color:var(--accent);}
             <div class="box"><div class="lbl">설치 테이블 수 × 단수</div><div class="val mono" id="resGrid">-</div></div>
           </div>
           <div class="note" id="simNote"></div>
+          <div class="note" id="facilityTypeNote"></div>
         </div>
 
         <div class="card">
@@ -329,7 +339,7 @@ a{color:var(--accent);}
           <p class="desc">위 04번 시뮬레이션의 예상 용량(kWp)을 기준으로 계산한 단순 사업성 참고자료입니다. SMP·REC·설치비 단가는 지역·시점·사업 조건에 따라 크게 달라지므로, 아래 값을 실제 최신 시세·견적으로 바꿔서 확인하세요.</p>
 
           <div class="settings" id="econSettings">
-            <div class="field"><label>설치비(원/kW)</label><input id="econCapex" type="number" value="1400000" step="10000"></div>
+            <div class="field"><label>설치비(원/kW)</label><input id="econCapex" type="number" value="1300000" step="10000"></div>
             <div class="field"><label>SMP(원/kWh)</label><input id="econSmp" type="number" value="148" step="1"></div>
             <div class="field"><label>REC 가격(원/REC)</label><input id="econRecPrice" type="number" value="70878" step="100"></div>
             <div class="field"><label>REC 가중치</label><input id="econRecWeight" type="number" value="1.0" step="0.1"></div>
@@ -355,13 +365,25 @@ a{color:var(--accent);}
 
         <div class="card">
           <h3><span class="n">06</span> 선로(계통) 여유용량 확인</h3>
-          <p class="desc">배전선로 여유용량은 한전(KEPCO) 로그인 기반 시스템에서만 실시간 조회가 가능합니다. 아래 정보를 복사해 한전 사이트에서 직접 확인하세요.</p>
+          <p class="desc">배전선로 여유용량은 한전(KEPCO) 로그인 기반 시스템에서만 실시간 조회가 가능합니다. 아래 정보를 복사해 한전 사이트에서 직접 확인한 뒤, 결과를 아래에 입력하세요.</p>
           <div class="copytext" id="addrCopyText">-</div>
           <div class="kepco">
             <button class="btn" id="copyAddrBtn" type="button">주소 복사</button>
             <a class="btn primary" id="kepcoLink" href="https://online.kepco.co.kr/EWM092D00" target="_blank" rel="noopener">한전 배전선로 여유용량 조회 열기 ↗</a>
           </div>
           <div class="note">경로: 한전 사이버지점 → 자주찾는서비스 → 배전선로 여유용량 조회. 변전소/D/L 단위 여유용량과 실제 계통접속 가능 여부는 한전 담당 지사 확인이 최종 기준입니다.</div>
+          <div class="settings" style="grid-template-columns:repeat(2,1fr);margin-top:14px;">
+            <div class="field">
+              <label>계통연계 가능 여부(한전 확인 결과)</label>
+              <select id="gridAvailable">
+                <option value="unknown" selected>확인 전</option>
+                <option value="yes">가능</option>
+                <option value="no">불가능</option>
+              </select>
+            </div>
+            <div class="field"><label>여유용량(kW)</label><input id="gridCapacityKw" type="number" step="1" placeholder="예: 500"></div>
+          </div>
+          <div class="note" id="gridNote"></div>
         </div>
 
         <div class="card">
@@ -386,16 +408,26 @@ a{color:var(--accent);}
             <button class="btn" id="copyOrdinanceBtn" type="button">검색어 복사</button>
             <a class="btn" href="https://www.law.go.kr/" target="_blank" rel="noopener">국가법령정보센터 열기 ↗</a>
           </div>
+          <div class="settings" style="grid-template-columns:1fr;margin-top:14px;">
+            <div class="field">
+              <label>이격거리 기준 충족 여부(조례 확인 결과)</label>
+              <select id="setbackVerdict">
+                <option value="unknown" selected>확인 전</option>
+                <option value="ok">충족 (설치 가능)</option>
+                <option value="fail">미충족 (설치 불가능)</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         <div class="card">
           <h3><span class="n">08</span> 사업제안서 자동 생성</h3>
-          <p class="desc">지금까지 진단한 부지·모듈배치·경제성 데이터를 「태양광 사업제안서」 양식에 맞춰 자동으로 채워넣은 초안을 만들어줍니다. Word에서 열어 이어서 편집하세요.</p>
+          <p class="desc">지금까지 진단한 부지·용도지역·인허가·모듈배치·경제성 데이터를 「태양광 발전사업 제안서」 슬라이드로 자동 정리해줍니다. PowerPoint에서 열어 이어서 편집하세요.</p>
           <div class="kepco">
-            <button class="btn primary" id="exportProposalBtn" type="button">📄 제안서 초안 다운로드 (.rtf → Word로 열기)</button>
+            <button class="btn primary" id="exportProposalBtn" type="button">📊 제안서 PPT 다운로드 (.pptx)</button>
             <span class="note" id="exportProposalStatus" style="margin:0;"></span>
           </div>
-          <div class="note">자동 채워지는 항목: 부지·용도지역·인허가(이격거리/농지전용부담금)·모듈배치·경제성 분석. 사업방식·추진일정·기대효과·결론 등 판단이 필요한 항목은 빈 칸(【 】)으로 남겨두었으니 Word에서 직접 채워주세요.</div>
+          <div class="note">자동 채워지는 항목: 부지·용도지역(설치 가능여부 포함)·인허가(이격거리/농지전용부담금/계통여유용량)·설비구분·모듈배치·경제성 분석. 사업방식 등 판단이 필요한 항목만 빈 칸(【 】)으로 남겨두었으니 PPT에서 직접 채워주세요. 붙임 슬라이드에는 04번 화면(위성사진+모듈배치도) 캡처를 직접 붙여넣으세요.</div>
         </div>
 
       </div>
@@ -851,6 +883,26 @@ a{color:var(--accent);}
     return lines.join('');
   }
 
+  // ---------- 용도지역 기준 설치 가능여부 판정(참고용 — 실제 판단은 관할 지자체 확인 필요) ----------
+  var ZONE_BLOCK = {'개발제한구역':1,'공익용산지':1,'자연환경보전지역':1};
+  var ZONE_CONDITIONAL = {'보전산지':1,'임업용산지':1,'농업진흥지역':1,'폐기물처리및재활용시설':1};
+  function zoneInstallVerdict(parcels){
+    var hasBlock = false, hasCond = false;
+    (parcels||[]).forEach(function(p){
+      (p.landUse||[]).forEach(function(z){
+        var name = z.prposAreaDstrcCodeNm;
+        if(name && ZONE_BLOCK[name]) hasBlock = true;
+        if(name && ZONE_CONDITIONAL[name]) hasCond = true;
+      });
+    });
+    if(hasBlock) return { level:'block', short:'설치 불가능', color:'var(--bad-ink)',
+      text:'🚫 설치 불가능 — 원칙적으로 개발행위가 금지되는 용도지역/지구가 포함되어 있습니다. 관할 기관과의 사전 협의가 반드시 필요합니다.' };
+    if(hasCond) return { level:'warn', short:'제한적 가능', color:'var(--warn-ink)',
+      text:'⚠ 설치 가능(제한적) — 사전 인허가·심의가 필요한 용도지역/지구가 포함되어 있습니다. 조건 충족 여부를 관할 기관에서 확인하세요.' };
+    return { level:'ok', short:'설치 가능', color:'var(--ok-ink)',
+      text:'✅ 설치 가능 — 확인된 용도지역/지구 기준으로 특별한 제한 사항은 발견되지 않았습니다. (최종 판단은 관할 지자체 확인 필요)' };
+  }
+
   // ---------- 농지전용부담금(추정) ----------
   var FARMLAND_JIMOK = {'전':1,'답':1,'과수원':1};
   function basePricePerSqm(p){
@@ -923,7 +975,9 @@ a{color:var(--accent);}
     var railHtml = '';
     railHtml += chip('토지유형', jimokText, jimokKeys.length ? 's-ok' : 's-warn',
       '지목이 대·전·답·잡종지 등이면 대체로 가능, 농지·산지면 전용허가가 추가로 필요합니다.');
-    railHtml += chip('용도지역·지구', totalZones ? (totalZones+'건 확인필요') : '해당없음', totalZones ? 's-warn' : 's-ok',
+    var zoneVerdict = zoneInstallVerdict(loaded);
+    var zoneChipCls = zoneVerdict.level === 'block' ? 's-bad' : (zoneVerdict.level === 'warn' ? 's-warn' : 's-ok');
+    railHtml += chip('용도지역·지구', zoneVerdict.short, zoneChipCls,
       '개발제한구역·보전산지·공익용산지 등이면 불가 가능성이 높고, 계획관리·보전관리지역 등은 조건부 가능인 경우가 많습니다. 아래 02번 항목별 설명 참고.');
     railHtml += chip('이격거리', '지자체 확인 필요', 's-neutral',
       '주거지역과 200m(태양광 국가상한, 2026.9.18~) 이내인지, 관할 조례가 이보다 더 짧게 정해뒀는지 확인하세요.');
@@ -987,6 +1041,10 @@ a{color:var(--accent);}
       zoneEmpty.classList.remove('hidden');
     }
     document.getElementById('zoneExplain').innerHTML = zoneExplainHtml(state.parcels);
+    var zv = zoneInstallVerdict(state.parcels);
+    var zvEl = document.getElementById('zoneVerdict');
+    zvEl.textContent = zv.text;
+    zvEl.style.color = zv.color;
 
     // 03 per-parcel characteristics table
     var charRows = state.parcels.map(function(p){
@@ -1157,10 +1215,53 @@ a{color:var(--accent);}
     document.getElementById('econNet').textContent = fmt(cumulativeNet/10000,0) + ' 만원';
 
     note.textContent = '판매단가 = SMP('+fmt(smp,0)+'원/kWh) + REC('+fmt(recPrice,0)+'원)×가중치('+recWeight+')/1000 = 약 '+fmt(sellPricePerKwh,1)+'원/kWh 가정. 용량 '+fmt(lastCapacityKw,1)+'kWp, 이용률 '+cfPct+'%로 연간 발전량을 추정한 단순 계산이며, 토지비용·금융비용(이자)·세금·REC 가중치 실제 고시값은 반영하지 않았습니다. 실제 사업성은 반드시 EPC사 견적과 최신 SMP·REC 시세, 해당 부지의 REC 가중치 고시 기준으로 재검토하세요.';
+    updateGridNote();
   }
   ['econCapex','econSmp','econRecPrice','econRecWeight','econCf','econOm','econYears'].forEach(function(id){
     document.getElementById(id).addEventListener('input', function(){ updateEconomics(lastCapacityKw); });
   });
+
+  // ---------- 계통연계 여유용량: 사용자 입력값과 설비용량 비교 ----------
+  function updateGridNote(){
+    var note = document.getElementById('gridNote');
+    var avail = document.getElementById('gridAvailable').value;
+    var capVal = parseFloat(document.getElementById('gridCapacityKw').value);
+    if(avail === 'no'){
+      note.textContent = '🚫 계통연계 불가능으로 확인됨 — 다른 변전소/배전선로 경유 또는 용량 조정이 필요합니다.';
+      note.style.color = 'var(--bad-ink)';
+      return;
+    }
+    if(avail === 'unknown' || isNaN(capVal)){
+      note.textContent = '한전 확인 결과를 입력하면 설비용량('+ (lastCapacityKw?fmt(lastCapacityKw,1)+'kWp':'-') +')과 비교해 충분 여부를 알려드립니다.';
+      note.style.color = '';
+      return;
+    }
+    if(lastCapacityKw && capVal < lastCapacityKw){
+      note.textContent = '⚠ 여유용량('+fmt(capVal,0)+'kW)이 설비용량('+fmt(lastCapacityKw,1)+'kWp)보다 부족합니다 — 용량 조정 또는 한전 재확인이 필요합니다.';
+      note.style.color = 'var(--warn-ink)';
+    } else {
+      note.textContent = '✅ 여유용량('+fmt(capVal,0)+'kW)이 설비용량('+(lastCapacityKw?fmt(lastCapacityKw,1)+'kWp':'-')+')을 충족합니다.';
+      note.style.color = 'var(--ok-ink)';
+    }
+  }
+  ['gridAvailable','gridCapacityKw'].forEach(function(id){
+    document.getElementById(id).addEventListener('input', updateGridNote);
+    document.getElementById(id).addEventListener('change', updateGridNote);
+  });
+
+  // ---------- 설비 구분(일반/영농형) 안내 ----------
+  var AGRIVOLTAIC_NOTE = '영농형 태양광은 농지 위에서 영농과 태양광 발전을 병행하는 방식입니다. 2026.6.16 제정 · 2026.12.17 시행되는 「영농형 태양광 발전사업의 활성화 및 지원에 관한 법률」(영농형태양광특별법)에 따라 농업인·주민참여협동조합·농업법인만 사업권을 가지며, 사업구역은 원칙적으로 농업진흥지역 밖 농지로 한정됩니다. 사업기간은 최초 5년+연장 18년, 최대 23년까지 가능하고(기존 농지법상 일시사용허가 8년보다 확대), 임차농 보호를 위한 계약갱신 의무·임대료 인상 5% 상한이 적용됩니다. 모듈 면적비 30% 미만 등 세부 기술기준은 하위법령 확정에 따라 달라질 수 있습니다.';
+  var CAPEX_BY_TYPE = { general: 1300000, agrivoltaic: 1600000 };
+  function updateFacilityTypeNote(){
+    var type = document.getElementById('facilityType').value;
+    document.getElementById('facilityTypeNote').textContent = type === 'agrivoltaic' ? ('🌱 영농형 태양광 선택됨 — ' + AGRIVOLTAIC_NOTE) : '';
+    var econCapexEl = document.getElementById('econCapex');
+    if(CAPEX_BY_TYPE.hasOwnProperty(type)){
+      econCapexEl.value = CAPEX_BY_TYPE[type];
+      updateEconomics(lastCapacityKw);
+    }
+  }
+  document.getElementById('facilityType').addEventListener('change', updateFacilityTypeNote);
 
   function drawSvg(rect, rotatedPolys, layout, tableDepth){
     var svg = document.getElementById('simSvg');
@@ -1238,52 +1339,7 @@ a{color:var(--accent);}
     setTimeout(function(){ document.title = originalTitle; }, 1000);
   });
 
-  // ---------- export: fill the proposal template with the live diagnosis (RTF, opens directly in Word) ----------
-  function toSigned16(n){ return n > 32767 ? n - 65536 : n; }
-  function rtfEscape(str){
-    str = String(str==null?'':str);
-    var out = '';
-    for (var i=0; i<str.length; i++){
-      var code = str.codePointAt(i);
-      if (code > 0xFFFF) i++; // consumed a surrogate pair
-      var ch = str[i] + (code > 0xFFFF ? str[i+1]||'' : '');
-      if (ch === '\\') out += '\\\\';
-      else if (ch === '{') out += '\\{';
-      else if (ch === '}') out += '\\}';
-      else if (ch === '\n') out += '\\line ';
-      else if (code < 128) out += ch;
-      else if (code > 0xFFFF){
-        var hi = 0xD800 + ((code-0x10000) >> 10), lo = 0xDC00 + ((code-0x10000) & 0x3FF);
-        out += '\\u'+toSigned16(hi)+'?\\u'+toSigned16(lo)+'?';
-      } else {
-        out += '\\u'+toSigned16(code)+'?';
-      }
-    }
-    return out;
-  }
-  function rtfHeading(text){ return '\\pard\\sb280\\sa140\\b\\fs30\\cf1 ' + rtfEscape(text) + '\\b0\\fs24\\cf0\\par\n'; }
-  function rtfSubheading(text){ return '\\pard\\sb200\\sa100\\b\\fs24\\cf2 ' + rtfEscape(text) + '\\b0\\cf0\\par\n'; }
-  function rtfPara(text){ return '\\pard\\sa120\\fs21 ' + rtfEscape(text) + '\\par\n'; }
-  function rtfNote(text){ return '\\pard\\sa160\\fs18\\i\\cf3 ' + rtfEscape(text) + '\\i0\\cf0\\par\n'; }
-  function rtfTable(rows, headerRowCount){
-    if(!rows || !rows.length) return '';
-    var nCols = rows[0].length;
-    var totalW = 9350, colW = Math.floor(totalW/nCols);
-    var out = '';
-    rows.forEach(function(row, ri){
-      var isHead = ri < (headerRowCount||1);
-      out += '\\trowd\\trgaph60\\trleft0\\trbrdrt\\brdrs\\brdrw10\\trbrdrb\\brdrs\\brdrw10\\trbrdrl\\brdrs\\brdrw10\\trbrdrr\\brdrs\\brdrw10\\trbrdrh\\brdrs\\brdrw10\\trbrdrv\\brdrs\\brdrw10';
-      if(isHead) out += '\\trkeep';
-      var x = 0;
-      row.forEach(function(){ x += colW; out += '\\cellx'+x; });
-      out += '\\pard\\intbl';
-      row.forEach(function(cell){
-        out += (isHead ? '\\b\\fs19\\cf1 ' : '\\fs20\\cf0 ') + rtfEscape(cell) + (isHead?'\\b0':'') + '\\cell';
-      });
-      out += '\\row\n';
-    });
-    return out;
-  }
+  // ---------- export: fill the proposal template with the live diagnosis (PPTX, opens directly in PowerPoint) ----------
   function domTableRows(table){
     if(!table) return [];
     return Array.prototype.map.call(table.querySelectorAll('tr'), function(tr){
@@ -1303,118 +1359,228 @@ a{color:var(--accent);}
     return el.options[el.selectedIndex].textContent.trim();
   }
 
-  function buildProposalRtf(){
+  var PPT = {
+    ACCENT:'D97F2C', DARK:'1B231F', MUTED:'5C6B62', LINE:'DCE3DA',
+    OK:'1F7A45', WARN:'9C6A0C', BAD:'B03A2E', SURFACE2:'EFF2ED', WHITE:'FFFFFF'
+  };
+  var PPT_FONT = 'Malgun Gothic';
+  var MX = 0.55, CW = 13.333 - 0.55*2; // content x / width inside margins
+
+  function pptxTitle(slide, no, text){
+    slide.addText(no ? (no + '. ' + text) : text, {
+      x:MX, y:0.35, w:CW, h:0.6, fontFace:PPT_FONT, fontSize:24, bold:true, color:PPT.DARK, align:'left'
+    });
+  }
+  function pptxSub(slide, text, y){
+    slide.addText(text, { x:MX, y:y, w:CW, h:0.38, fontFace:PPT_FONT, fontSize:15, bold:true, color:PPT.ACCENT, align:'left' });
+  }
+  function pptxPara(slide, text, y, opts){
+    opts = opts || {};
+    slide.addText(text, Object.assign({ x:MX, y:y, w:CW, h:opts.h||0.5, fontFace:PPT_FONT, fontSize:opts.fontSize||12,
+      color:opts.color||PPT.DARK, align:'left', valign:'top' }, opts.extra||{}));
+  }
+  function pptxNote(slide, text, y, h){
+    if(!text) return;
+    slide.addText(text, { x:MX, y:y, w:CW, h:h||0.5, fontFace:PPT_FONT, fontSize:9.5, italic:true, color:PPT.MUTED, align:'left', valign:'top' });
+  }
+  function pptxBadge(slide, text, color, y){
+    slide.addText(text, {
+      x:MX, y:y, w:CW, h:0.5, fontFace:PPT_FONT, fontSize:14, bold:true, color:PPT.WHITE, align:'left', valign:'middle',
+      fill:{ color:color }, margin:[6,10,6,10]
+    });
+  }
+  function pptxTable(slide, rows, x, y, w, opts){
+    if(!rows || !rows.length) return;
+    opts = opts || {};
+    var headerN = opts.headerRows || 1;
+    var fontSize = opts.fontSize || 11;
+    var nCols = rows[0].length;
+    // pad any short row (e.g. a colspan'd "no data" message row) so every row has the same
+    // column count — otherwise pptxgenjs distorts widths/colors on the mismatched row.
+    rows = rows.map(function(row){
+      row = row.slice();
+      while(row.length < nCols) row.push('');
+      return row;
+    });
+    var colW = opts.colW || new Array(nCols).fill(w/nCols);
+    var body = rows.map(function(row, ri){
+      var isHead = ri < headerN;
+      return row.map(function(cell){
+        return {
+          text: String(cell==null?'':cell),
+          options: {
+            bold: isHead, fontFace:PPT_FONT, fontSize: isHead ? fontSize+0.5 : fontSize,
+            color: isHead ? PPT.WHITE : PPT.DARK,
+            fill: { color: isHead ? PPT.ACCENT : (ri % 2 === 0 ? PPT.WHITE : PPT.SURFACE2) },
+            align: isHead ? 'center' : 'left', valign:'middle',
+            border: [{type:'solid', color:PPT.LINE, pt:0.75}, {type:'solid', color:PPT.LINE, pt:0.75}, {type:'solid', color:PPT.LINE, pt:0.75}, {type:'solid', color:PPT.LINE, pt:0.75}]
+          }
+        };
+      });
+    });
+    slide.addTable(body, { x:x, y:y, w:w, colW:colW, rowH:opts.rowH||0.32, autoPage:false });
+  }
+
+  function addSlideNumber(slide, i, total){
+    slide.addText(i+' / '+total, { x:12.4, y:7.12, w:0.8, h:0.3, fontFace:PPT_FONT, fontSize:9, color:PPT.MUTED, align:'right' });
+  }
+
+  async function buildProposalPptx(){
     var addrList = state.parcels.map(function(p){ return p.addressText; });
     var today = new Date();
     var dateStr = today.getFullYear()+'.'+String(today.getMonth()+1).padStart(2,'0')+'.'+String(today.getDate()).padStart(2,'0');
 
-    var rtf = '{\\rtf1\\ansi\\ansicpg1252\\uc1\\deff0\\deflang1042'
-      + '{\\fonttbl{\\f0\\fnil\\fcharset129 Malgun Gothic;}}'
-      + '{\\colortbl;\\red27\\green35\\blue31;\\red90\\green52\\blue16;\\red92\\green107\\blue98;}'
-      + '\\f0\\fs24\\sa120\n';
+    var pres = new PptxGenJS();
+    pres.defineLayout({ name:'PROPOSAL', width:13.333, height:7.5 });
+    pres.layout = 'PROPOSAL';
 
-    rtf += '\\pard\\qc\\sb200\\sa80\\b\\fs40\\cf1 ' + rtfEscape('태양광 발전사업 제안서') + '\\b0\\cf0\\par\n';
-    rtf += '\\pard\\qc\\sa300\\i\\fs22\\cf3 ' + rtfEscape(addrList.length ? addrList.join(' / ') : '[ 부지 주소를 입력하세요 ]') + '\\i0\\cf0\\par\n';
-    rtf += '\\pard\\qc\\sa400\\fs20\\cf3 ' + rtfEscape('제안기관: ㈜클레스(KLES)   ·   생성일: ' + dateStr + '   ·   「태양광 부지 진단 시스템」에서 자동 생성된 초안') + '\\cf0\\par\n';
-    rtf += '\\page\n';
+    var slides = [];
+
+    // 0. 표지
+    var s0 = pres.addSlide(); slides.push(s0);
+    s0.background = { color: PPT.DARK };
+    s0.addText('태양광 발전사업 제안서', { x:0.8, y:2.5, w:11.73, h:1.0, fontFace:PPT_FONT, fontSize:36, bold:true, color:PPT.WHITE, align:'center' });
+    s0.addText(addrList.length ? addrList.join(' / ') : '[ 부지 주소를 입력하세요 ]', { x:0.8, y:3.6, w:11.73, h:0.5, fontFace:PPT_FONT, fontSize:16, italic:true, color:PPT.ACCENT, align:'center' });
+    s0.addText('제안기관: ㈜클레스(KLES)   ·   생성일: ' + dateStr + '   ·   「태양광 부지 진단 시스템」에서 자동 생성된 초안',
+      { x:0.8, y:4.3, w:11.73, h:0.4, fontFace:PPT_FONT, fontSize:11, color:'B9C2BC', align:'center' });
 
     // Ⅰ. 사업 개요
-    rtf += rtfHeading('Ⅰ. 사업 개요');
-    rtf += rtfPara('본 사업은 ' + (addrList.join(', ')||'[ 부지 주소 ]') + ' 일원의 유휴 부지를 활용하여 태양광 발전설비를 설치·운영함으로써, 안정적인 신재생에너지 발전수익 창출과 온실가스 감축에 기여하는 것을 목적으로 한다.');
-    rtf += rtfTable([
+    var s1 = pres.addSlide(); slides.push(s1);
+    pptxTitle(s1, 'Ⅰ', '사업 개요');
+    pptxPara(s1, '본 사업은 ' + (addrList.join(', ')||'[ 부지 주소 ]') + ' 일원의 유휴 부지를 활용하여 태양광 발전설비를 설치·운영함으로써, 안정적인 신재생에너지 발전수익 창출과 온실가스 감축에 기여하는 것을 목적으로 한다.', 1.1, {h:0.7});
+    pptxTable(s1, [
       ['구분','내용'],
       ['사업위치', addrList.join(', ') || '【 부지 주소 】'],
       ['필지 수', String(state.parcels.length) + '개'],
       ['설비용량', txt('resCapacity') || '【 】'],
       ['사업방식', '【 한전 계통판매 / PPA / 자가소비 중 선택 】'],
       ['사업기간', '착공 【 YYYY.MM 】 ~ 준공 【 YYYY.MM 】'],
-      ['사업시행자', '㈜클레스 (KLES)'],
-    ], 1);
+    ], MX, 2.0, CW, { colW:[CW*0.25, CW*0.75], rowH:0.42, fontSize:13 });
 
-    // Ⅱ. 부지현황 분석
-    rtf += rtfHeading('Ⅱ. 부지현황 분석');
-    rtf += rtfSubheading('2.1 토지 현황');
+    // Ⅱ-1. 부지현황: 토지현황 + 용도지역
+    var s2 = pres.addSlide(); slides.push(s2);
+    pptxTitle(s2, 'Ⅱ', '부지현황 분석 (1/2)');
+    pptxSub(s2, '2.1 토지 현황', 1.15);
     var landRows = domTableRows(document.querySelector('#landInfoBody').closest('table'));
-    rtf += rtfTable(landRows, 1);
-    rtf += rtfSubheading('2.2 용도지역 · 지구 현황');
+    pptxTable(s2, landRows, MX, 1.55, CW, { rowH:0.32, fontSize:10.5 });
+    var zLandH = 0.32 * landRows.length + 0.35;
+    pptxSub(s2, '2.2 용도지역 · 지구 현황', 1.55 + zLandH);
     var zoneRows = domTableRows(document.querySelector('#zoneTableBody').closest('table'));
-    if(zoneRows.length > 1) rtf += rtfTable(zoneRows, 1);
-    else rtf += rtfPara('등록된 용도지역/지구 정보가 없습니다.');
-    var zoneNotes = stripTagsLines(document.getElementById('zoneExplain'));
-    zoneNotes.forEach(function(n){ rtf += rtfNote(n); });
-    rtf += rtfSubheading('2.3 산지 · 농지 관련 유의사항');
-    rtf += rtfPara('산지관리법 제2조에 따라 지목이 전·답·과수원·목장용지인 토지는 법상 "산지" 정의에서 제외된다. 지목이 전·답·과수원인 농지를 전용할 경우 아래 Ⅲ장의 농지전용부담금이 발생한다.');
+    if(zoneRows.length > 1) pptxTable(s2, zoneRows, MX, 1.9 + zLandH, CW, { rowH:0.32, fontSize:10 });
+    else pptxPara(s2, '등록된 용도지역/지구 정보가 없습니다.', 1.9 + zLandH, {fontSize:11});
 
-    // Ⅲ. 인허가 검토
-    rtf += rtfHeading('Ⅲ. 인허가 검토');
-    rtf += rtfSubheading('3.1 이격거리 규제 현황 (국가 상한, 2026.9.18 시행)');
-    rtf += rtfTable([
+    // Ⅱ-2. 부지현황: 설치 가능여부 판정 + 유의사항
+    var s3 = pres.addSlide(); slides.push(s3);
+    pptxTitle(s3, 'Ⅱ', '부지현황 분석 (2/2) — 용도지역 기준 설치 가능여부');
+    var zv = zoneInstallVerdict(state.parcels);
+    var zvColor = zv.level === 'block' ? PPT.BAD : (zv.level === 'warn' ? PPT.WARN : PPT.OK);
+    pptxBadge(s3, zv.text, zvColor, 1.15);
+    var zoneNotes = stripTagsLines(document.getElementById('zoneExplain'));
+    var noteY = 1.9;
+    zoneNotes.forEach(function(n){
+      pptxPara(s3, n, noteY, { fontSize:10.5, h:0.5, color:PPT.MUTED });
+      noteY += 0.55;
+    });
+    pptxSub(s3, '2.3 산지 · 농지 관련 유의사항', noteY + 0.15);
+    pptxPara(s3, '산지관리법 제2조에 따라 지목이 전·답·과수원·목장용지인 토지는 법상 "산지" 정의에서 제외된다. 지목이 전·답·과수원인 농지를 전용할 경우 다음 장의 농지전용부담금이 발생한다.', noteY + 0.55, {fontSize:11, h:0.6});
+
+    // Ⅲ-1. 인허가: 이격거리 + 농지전용부담금
+    var s4 = pres.addSlide(); slides.push(s4);
+    pptxTitle(s4, 'Ⅲ', '인허가 검토 (1/2)');
+    pptxSub(s4, '3.1 이격거리 규제 현황 (국가 상한, 2026.9.18 시행)', 1.15);
+    pptxTable(s4, [
       ['구분','국가 상한'],
       ['태양광 · 주거지역', '최대 200m 이내에서 지자체 조례로 결정'],
       ['태양광 · 도로', '이격거리 규제 신설 금지(폐지)'],
       ['풍력 · 주거지역(5호 이상)', '최대 1,500m 이내'],
       ['풍력 · 도로', '최대 500m 이내'],
-    ], 1);
-    rtf += rtfSubheading('3.2 농지전용부담금 산정');
+    ], MX, 1.55, CW, { colW:[CW*0.4, CW*0.6], rowH:0.32, fontSize:11 });
+    var setbackSel = document.getElementById('setbackVerdict').value;
+    var setbackText = setbackSel === 'ok' ? '✅ 이격거리 기준 충족 — 설치 가능'
+      : setbackSel === 'fail' ? '🚫 이격거리 기준 미충족 — 설치 불가능' : '❔ 이격거리 기준 확인 전 — 관할 조례 확인 필요';
+    var setbackColor = setbackSel === 'ok' ? PPT.OK : (setbackSel === 'fail' ? PPT.BAD : PPT.MUTED);
+    pptxBadge(s4, setbackText, setbackColor, 3.5);
+    pptxSub(s4, '3.2 농지전용부담금 산정', 4.15);
     var farmRows = domTableRows(document.querySelector('#farmlandBody').closest('table'));
-    rtf += rtfTable(farmRows, 1);
-    rtf += rtfSubheading('3.3 계통연계(선로) 여유용량 확인');
-    rtf += rtfPara('한전 사이버지점(online.kepco.co.kr) → 자주찾는서비스 → 배전선로 여유용량 조회. 조회 주소: ' + (addrList.join(' / ')||'【 】'));
+    pptxTable(s4, farmRows, MX, 4.55, CW, { rowH:0.32, fontSize:9.5 });
+
+    // Ⅲ-2. 인허가: 계통연계 여유용량
+    var s5 = pres.addSlide(); slides.push(s5);
+    pptxTitle(s5, 'Ⅲ', '인허가 검토 (2/2) — 계통연계(선로) 여유용량');
+    var gridAvail = document.getElementById('gridAvailable').value;
+    var gridCapVal = val('gridCapacityKw');
+    var gridText, gridColor;
+    if(gridAvail === 'no'){ gridText = '🚫 계통연계 불가능'; gridColor = PPT.BAD; }
+    else if(gridAvail === 'yes'){ gridText = '✅ 계통연계 가능'; gridColor = PPT.OK; }
+    else { gridText = '❔ 계통연계 여부 확인 전'; gridColor = PPT.MUTED; }
+    pptxBadge(s5, gridText, gridColor, 1.15);
+    pptxTable(s5, [
+      ['구분','내용'],
+      ['한전 확인 결과', gridAvail === 'yes' ? '가능' : (gridAvail === 'no' ? '불가능' : '확인 전')],
+      ['여유용량', gridCapVal ? (gridCapVal + ' kW') : '【 】'],
+      ['본 사업 설비용량', txt('resCapacity') || '【 】'],
+      ['용량 충족 여부', (function(){
+          var cap = parseFloat(gridCapVal);
+          if(gridAvail === 'no') return '불가(계통연계 불가능)';
+          if(isNaN(cap) || !lastCapacityKw) return '확인 필요';
+          return cap >= lastCapacityKw ? '충족' : '부족';
+        })()],
+    ], MX, 2.0, CW, { colW:[CW*0.3, CW*0.7], rowH:0.4, fontSize:12 });
+    pptxNote(s5, '조회 경로: 한전 사이버지점(online.kepco.co.kr) → 자주찾는서비스 → 배전선로 여유용량 조회. 조회 주소: ' + (addrList.join(' / ')||'【 】'), 4.4, 0.6);
 
     // Ⅳ. 설비 설계 개요
-    rtf += rtfHeading('Ⅳ. 설비 설계 개요');
-    rtf += rtfSubheading('4.1 모듈 사양');
-    rtf += rtfTable([
+    var s6 = pres.addSlide(); slides.push(s6);
+    pptxTitle(s6, 'Ⅳ', '설비 설계 개요');
+    var facilityType = document.getElementById('facilityType').value;
+    var facilityLabel = facilityType === 'agrivoltaic' ? '영농형 태양광 (농지 병행)' : '일반 태양광';
+    pptxBadge(s6, '설비 구분: ' + facilityLabel, PPT.ACCENT, 1.15);
+    var fyPos = 1.85;
+    if(facilityType === 'agrivoltaic'){
+      pptxNote(s6, AGRIVOLTAIC_NOTE, fyPos, 0.75);
+      fyPos += 0.85;
+    }
+    pptxSub(s6, '4.1 모듈 사양', fyPos);
+    pptxTable(s6, [
       ['정격출력','장변','단변','거치 단수','경사각','경계 이격'],
       [val('moduleWatt')+' W', val('moduleLong')+' mm', val('moduleShort')+' mm', val('stackCount')+'단', val('tiltAngle')+'°', val('setbackM')+'m'],
-    ], 1);
-    rtf += rtfSubheading('4.2 배치 시뮬레이션 결과');
-    rtf += rtfTable([
+    ], MX, fyPos+0.4, CW, { rowH:0.36, fontSize:11.5 });
+    pptxSub(s6, '4.2 배치 시뮬레이션 결과', fyPos+1.3);
+    pptxTable(s6, [
       ['실제 배치 모듈수','설치 테이블 수 × 단수','예상 설비용량'],
       [txt('resModulesLayout'), txt('resGrid'), txt('resCapacity')],
-    ], 1);
-    rtf += rtfNote(txt('simNote'));
-    rtf += rtfPara('※ 위성사진 및 모듈 배치도는 「태양광 부지 진단 시스템」 04번 화면을 캡처하여 이 문서에 별도로 삽입하세요.');
+    ], MX, fyPos+1.7, CW, { rowH:0.4, fontSize:12.5 });
+    pptxNote(s6, txt('simNote'), fyPos+2.5, 0.7);
 
     // Ⅴ. 경제성 분석
-    rtf += rtfHeading('Ⅴ. 경제성 분석 (참고용)');
-    rtf += rtfTable([
+    var s7 = pres.addSlide(); slides.push(s7);
+    pptxTitle(s7, 'Ⅴ', '경제성 분석 (참고용)');
+    pptxTable(s7, [
       ['설치비(원/kW)','SMP(원/kWh)','REC가격(원/REC)','REC가중치','이용률(%)','O&M(%)','운영기간(년)'],
       [val('econCapex'), val('econSmp'), val('econRecPrice'), val('econRecWeight'), val('econCf'), val('econOm'), val('econYears')],
-    ], 1);
-    rtf += rtfTable([
+    ], MX, 1.2, CW, { rowH:0.42, fontSize:11 });
+    pptxTable(s7, [
       ['총 사업비','연간 발전량','연간 매출','연간 O&M','단순 회수기간','누적 순이익'],
       [txt('econCapexTotal'), txt('econGen'), txt('econRevenue'), txt('econOmCost'), txt('econPayback'), txt('econNet')],
-    ], 1);
-    rtf += rtfNote(txt('econNote'));
+    ], MX, 2.2, CW, { rowH:0.5, fontSize:11.5 });
+    pptxNote(s7, txt('econNote'), 3.3, 1.4);
 
-    // Ⅵ~Ⅷ (판단이 필요한 항목 — 빈 칸으로 유지)
-    rtf += rtfHeading('Ⅵ. 사업 추진일정');
-    rtf += rtfTable([
-      ['단계','주요 내용','기간'],
-      ['부지 검토 및 인허가','부지 진단, 개발행위허가, 농지·산지전용허가','【 】개월'],
-      ['계통연계 협의','한전 계통연계 신청 및 협의','【 】개월'],
-      ['설계 및 조달','구조·전기 설계, 기자재 발주','【 】개월'],
-      ['시공','토목·구조물·전기 공사','【 】개월'],
-      ['준공 및 계통연결','사용전검사, 계통연결, 상업운전','【 】개월'],
-    ], 1);
+    // Ⅵ. 결론 및 제안
+    var s8 = pres.addSlide(); slides.push(s8);
+    pptxTitle(s8, 'Ⅵ', '결론 및 제안');
+    pptxPara(s8, '본 제안서는 ' + (addrList.join(', ')||'【 부지 】') + '에 대한 태양광 발전사업의 타당성을 검토한 결과를 종합한 것이다. 부지현황·인허가·경제성 분석 결과를 바탕으로 사업 추진이 【 타당함 / 조건부 타당함 】 것으로 판단되며, 세부 실행계획에 대한 협의를 제안한다.', 1.3, {h:1.2, fontSize:14});
 
-    rtf += rtfHeading('Ⅶ. 기대효과');
-    rtf += rtfPara('· 유휴·저활용 부지를 활용한 안정적인 장기 임대·발전 수익 창출');
-    rtf += rtfPara('· 연간 ' + (txt('econGen')||'【 】') + ' 발전을 통한 온실가스 감축 효과');
-    rtf += rtfPara('· 지역 신재생에너지 보급목표 달성 기여 및 지역경제 활성화');
-    rtf += rtfPara('· RE100 등 재생에너지 사용 확대 흐름에 대응한 선제적 자산 확보');
+    // 붙임
+    var s9 = pres.addSlide(); slides.push(s9);
+    pptxTitle(s9, null, '붙임');
+    s9.addShape('rect', { x:MX, y:1.3, w:CW, h:5.4, fill:{color:PPT.SURFACE2}, line:{color:PPT.LINE, width:1.5, dashType:'dash'} });
+    s9.addText('위성사진 + 모듈 배치 시뮬레이션 도면', { x:MX, y:3.4, w:CW, h:0.5, fontFace:PPT_FONT, fontSize:16, bold:true, color:PPT.MUTED, align:'center' });
+    s9.addText('「태양광 부지 진단 시스템」 04번 화면(위성사진에 모듈 배치를 겹친 화면)을 캡처하여\n이 영역에 붙여넣으세요.', { x:MX, y:3.95, w:CW, h:0.6, fontFace:PPT_FONT, fontSize:12, color:PPT.MUTED, align:'center' });
 
-    rtf += rtfHeading('Ⅷ. 결론 및 제안');
-    rtf += rtfPara('본 제안서는 ' + (addrList.join(', ')||'【 부지 】') + '에 대한 태양광 발전사업의 타당성을 검토한 결과를 종합한 것이다. 부지현황·인허가·경제성 분석 결과를 바탕으로 사업 추진이 【 타당함 / 조건부 타당함 】 것으로 판단되며, 세부 실행계획에 대한 협의를 제안한다.');
+    var total = slides.length;
+    slides.forEach(function(sl, i){ addSlideNumber(sl, i+1, total); });
 
-    rtf += rtfHeading('붙임');
-    ['토지(임야)대장 및 지적도','등기부등본','용도지역·지구 확인서(토지이용계획확인원)','모듈 배치 시뮬레이션 도면','개별공시지가 확인서','설비 견적서'].forEach(function(t){
-      rtf += rtfPara('· ' + t);
-    });
-
-    rtf += '}';
-    return rtf;
+    var firstAddr = (state.parcels[0].addressText||'proposal').replace(/\s+/g,'_');
+    await pres.writeFile({ fileName: '태양광_사업제안서_' + firstAddr + '.pptx' });
   }
 
   document.getElementById('exportProposalBtn').addEventListener('click', function(){
@@ -1425,25 +1591,16 @@ a{color:var(--accent);}
       setTimeout(function(){ statusEl.textContent=''; statusEl.style.color=''; }, 3000);
       return;
     }
-    try{
-      var rtf = buildProposalRtf();
-      var blob = new Blob([rtf], { type: 'application/rtf' });
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
-      var firstAddr = state.parcels[0].addressText.replace(/\s+/g,'_');
-      a.href = url;
-      a.download = '태양광_사업제안서_' + firstAddr + '.rtf';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+    statusEl.style.color = '';
+    statusEl.textContent = 'PPT 생성 중…';
+    buildProposalPptx().then(function(){
       statusEl.style.color = 'var(--ok-ink)';
-      statusEl.textContent = '다운로드됨 ✓ — Word로 열어 이어서 편집하세요.';
+      statusEl.textContent = '다운로드됨 ✓ — PowerPoint에서 열어 이어서 편집하세요.';
       setTimeout(function(){ statusEl.textContent=''; statusEl.style.color=''; }, 4000);
-    }catch(e){
+    }).catch(function(e){
       statusEl.style.color = 'var(--bad-ink)';
       statusEl.textContent = '생성 중 오류가 발생했습니다.';
-    }
+    });
   });
 
 })();
