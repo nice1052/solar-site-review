@@ -1,4 +1,4 @@
-<title>솔라 부지진단</title>
+<title>태양광 부지 진단 시스템</title>
 <style>
 :root{
   --bg:#F6F7F4;
@@ -199,7 +199,7 @@ a{color:var(--accent);}
     <div class="eyebrow">SOLAR SITE ONE-POINT CHECK</div>
     <div class="titlerow">
       <span class="logo">☀️</span>
-      <h1>솔라 부지진단</h1>
+      <h1>태양광 부지 진단 시스템</h1>
     </div>
     <div class="titlebar"></div>
     <p>주소로 필지를 추가하면 지목·용도지역·필지 형상을 확인하고, 모듈 배치 시뮬레이션으로 지상형 설치 최대 용량을 추정합니다. 붙어있는 여러 필지를 추가하면 하나로 합쳐서 계산해요.</p>
@@ -386,6 +386,16 @@ a{color:var(--accent);}
             <button class="btn" id="copyOrdinanceBtn" type="button">검색어 복사</button>
             <a class="btn" href="https://www.law.go.kr/" target="_blank" rel="noopener">국가법령정보센터 열기 ↗</a>
           </div>
+        </div>
+
+        <div class="card">
+          <h3><span class="n">08</span> 사업제안서 자동 생성</h3>
+          <p class="desc">지금까지 진단한 부지·모듈배치·경제성 데이터를 「태양광 사업제안서」 양식에 맞춰 자동으로 채워넣은 초안을 만들어줍니다. Word에서 열어 이어서 편집하세요.</p>
+          <div class="kepco">
+            <button class="btn primary" id="exportProposalBtn" type="button">📄 제안서 초안 다운로드 (.rtf → Word로 열기)</button>
+            <span class="note" id="exportProposalStatus" style="margin:0;"></span>
+          </div>
+          <div class="note">자동 채워지는 항목: 부지·용도지역·인허가(이격거리/농지전용부담금)·모듈배치·경제성 분석. 사업방식·추진일정·기대효과·결론 등 판단이 필요한 항목은 빈 칸(【 】)으로 남겨두었으니 Word에서 직접 채워주세요.</div>
         </div>
 
       </div>
@@ -1223,9 +1233,217 @@ a{color:var(--accent);}
   var originalTitle = document.title;
   document.getElementById('printBtn').addEventListener('click', function(){
     var firstAddr = state.parcels[0] ? state.parcels[0].addressText : '';
-    document.title = firstAddr ? ('솔라 부지진단_' + firstAddr.replace(/\s+/g,'_')) : originalTitle;
+    document.title = firstAddr ? ('태양광부지진단_' + firstAddr.replace(/\s+/g,'_')) : originalTitle;
     window.print();
     setTimeout(function(){ document.title = originalTitle; }, 1000);
+  });
+
+  // ---------- export: fill the proposal template with the live diagnosis (RTF, opens directly in Word) ----------
+  function toSigned16(n){ return n > 32767 ? n - 65536 : n; }
+  function rtfEscape(str){
+    str = String(str==null?'':str);
+    var out = '';
+    for (var i=0; i<str.length; i++){
+      var code = str.codePointAt(i);
+      if (code > 0xFFFF) i++; // consumed a surrogate pair
+      var ch = str[i] + (code > 0xFFFF ? str[i+1]||'' : '');
+      if (ch === '\\') out += '\\\\';
+      else if (ch === '{') out += '\\{';
+      else if (ch === '}') out += '\\}';
+      else if (ch === '\n') out += '\\line ';
+      else if (code < 128) out += ch;
+      else if (code > 0xFFFF){
+        var hi = 0xD800 + ((code-0x10000) >> 10), lo = 0xDC00 + ((code-0x10000) & 0x3FF);
+        out += '\\u'+toSigned16(hi)+'?\\u'+toSigned16(lo)+'?';
+      } else {
+        out += '\\u'+toSigned16(code)+'?';
+      }
+    }
+    return out;
+  }
+  function rtfHeading(text){ return '\\pard\\sb280\\sa140\\b\\fs30\\cf1 ' + rtfEscape(text) + '\\b0\\fs24\\cf0\\par\n'; }
+  function rtfSubheading(text){ return '\\pard\\sb200\\sa100\\b\\fs24\\cf2 ' + rtfEscape(text) + '\\b0\\cf0\\par\n'; }
+  function rtfPara(text){ return '\\pard\\sa120\\fs21 ' + rtfEscape(text) + '\\par\n'; }
+  function rtfNote(text){ return '\\pard\\sa160\\fs18\\i\\cf3 ' + rtfEscape(text) + '\\i0\\cf0\\par\n'; }
+  function rtfTable(rows, headerRowCount){
+    if(!rows || !rows.length) return '';
+    var nCols = rows[0].length;
+    var totalW = 9350, colW = Math.floor(totalW/nCols);
+    var out = '';
+    rows.forEach(function(row, ri){
+      var isHead = ri < (headerRowCount||1);
+      out += '\\trowd\\trgaph60\\trleft0\\trbrdrt\\brdrs\\brdrw10\\trbrdrb\\brdrs\\brdrw10\\trbrdrl\\brdrs\\brdrw10\\trbrdrr\\brdrs\\brdrw10\\trbrdrh\\brdrs\\brdrw10\\trbrdrv\\brdrs\\brdrw10';
+      if(isHead) out += '\\trkeep';
+      var x = 0;
+      row.forEach(function(){ x += colW; out += '\\cellx'+x; });
+      out += '\\pard\\intbl';
+      row.forEach(function(cell){
+        out += (isHead ? '\\b\\fs19\\cf1 ' : '\\fs20\\cf0 ') + rtfEscape(cell) + (isHead?'\\b0':'') + '\\cell';
+      });
+      out += '\\row\n';
+    });
+    return out;
+  }
+  function domTableRows(table){
+    if(!table) return [];
+    return Array.prototype.map.call(table.querySelectorAll('tr'), function(tr){
+      return Array.prototype.map.call(tr.children, function(td){ return td.textContent.replace(/\s+/g,' ').trim(); });
+    });
+  }
+  function stripTagsLines(el){
+    if(!el) return [];
+    return Array.prototype.map.call(el.querySelectorAll('.zonenote'), function(d){ return d.textContent.replace(/\s+/g,' ').trim(); })
+      .filter(function(t){ return t; });
+  }
+  function val(id){ var el = document.getElementById(id); return el ? el.value : ''; }
+  function txt(id){ var el = document.getElementById(id); return el ? el.textContent.trim() : ''; }
+  function selectedOptionText(id){
+    var el = document.getElementById(id);
+    if(!el || el.selectedIndex < 0) return '';
+    return el.options[el.selectedIndex].textContent.trim();
+  }
+
+  function buildProposalRtf(){
+    var addrList = state.parcels.map(function(p){ return p.addressText; });
+    var today = new Date();
+    var dateStr = today.getFullYear()+'.'+String(today.getMonth()+1).padStart(2,'0')+'.'+String(today.getDate()).padStart(2,'0');
+
+    var rtf = '{\\rtf1\\ansi\\ansicpg1252\\uc1\\deff0\\deflang1042'
+      + '{\\fonttbl{\\f0\\fnil\\fcharset129 Malgun Gothic;}}'
+      + '{\\colortbl;\\red27\\green35\\blue31;\\red90\\green52\\blue16;\\red92\\green107\\blue98;}'
+      + '\\f0\\fs24\\sa120\n';
+
+    rtf += '\\pard\\qc\\sb200\\sa80\\b\\fs40\\cf1 ' + rtfEscape('태양광 발전사업 제안서') + '\\b0\\cf0\\par\n';
+    rtf += '\\pard\\qc\\sa300\\i\\fs22\\cf3 ' + rtfEscape(addrList.length ? addrList.join(' / ') : '[ 부지 주소를 입력하세요 ]') + '\\i0\\cf0\\par\n';
+    rtf += '\\pard\\qc\\sa400\\fs20\\cf3 ' + rtfEscape('제안기관: ㈜클레스(KLES)   ·   생성일: ' + dateStr + '   ·   「태양광 부지 진단 시스템」에서 자동 생성된 초안') + '\\cf0\\par\n';
+    rtf += '\\page\n';
+
+    // Ⅰ. 사업 개요
+    rtf += rtfHeading('Ⅰ. 사업 개요');
+    rtf += rtfPara('본 사업은 ' + (addrList.join(', ')||'[ 부지 주소 ]') + ' 일원의 유휴 부지를 활용하여 태양광 발전설비를 설치·운영함으로써, 안정적인 신재생에너지 발전수익 창출과 온실가스 감축에 기여하는 것을 목적으로 한다.');
+    rtf += rtfTable([
+      ['구분','내용'],
+      ['사업위치', addrList.join(', ') || '【 부지 주소 】'],
+      ['필지 수', String(state.parcels.length) + '개'],
+      ['설비용량', txt('resCapacity') || '【 】'],
+      ['사업방식', '【 한전 계통판매 / PPA / 자가소비 중 선택 】'],
+      ['사업기간', '착공 【 YYYY.MM 】 ~ 준공 【 YYYY.MM 】'],
+      ['사업시행자', '㈜클레스 (KLES)'],
+    ], 1);
+
+    // Ⅱ. 부지현황 분석
+    rtf += rtfHeading('Ⅱ. 부지현황 분석');
+    rtf += rtfSubheading('2.1 토지 현황');
+    var landRows = domTableRows(document.querySelector('#landInfoBody').closest('table'));
+    rtf += rtfTable(landRows, 1);
+    rtf += rtfSubheading('2.2 용도지역 · 지구 현황');
+    var zoneRows = domTableRows(document.querySelector('#zoneTableBody').closest('table'));
+    if(zoneRows.length > 1) rtf += rtfTable(zoneRows, 1);
+    else rtf += rtfPara('등록된 용도지역/지구 정보가 없습니다.');
+    var zoneNotes = stripTagsLines(document.getElementById('zoneExplain'));
+    zoneNotes.forEach(function(n){ rtf += rtfNote(n); });
+    rtf += rtfSubheading('2.3 산지 · 농지 관련 유의사항');
+    rtf += rtfPara('산지관리법 제2조에 따라 지목이 전·답·과수원·목장용지인 토지는 법상 "산지" 정의에서 제외된다. 지목이 전·답·과수원인 농지를 전용할 경우 아래 Ⅲ장의 농지전용부담금이 발생한다.');
+
+    // Ⅲ. 인허가 검토
+    rtf += rtfHeading('Ⅲ. 인허가 검토');
+    rtf += rtfSubheading('3.1 이격거리 규제 현황 (국가 상한, 2026.9.18 시행)');
+    rtf += rtfTable([
+      ['구분','국가 상한'],
+      ['태양광 · 주거지역', '최대 200m 이내에서 지자체 조례로 결정'],
+      ['태양광 · 도로', '이격거리 규제 신설 금지(폐지)'],
+      ['풍력 · 주거지역(5호 이상)', '최대 1,500m 이내'],
+      ['풍력 · 도로', '최대 500m 이내'],
+    ], 1);
+    rtf += rtfSubheading('3.2 농지전용부담금 산정');
+    var farmRows = domTableRows(document.querySelector('#farmlandBody').closest('table'));
+    rtf += rtfTable(farmRows, 1);
+    rtf += rtfSubheading('3.3 계통연계(선로) 여유용량 확인');
+    rtf += rtfPara('한전 사이버지점(online.kepco.co.kr) → 자주찾는서비스 → 배전선로 여유용량 조회. 조회 주소: ' + (addrList.join(' / ')||'【 】'));
+
+    // Ⅳ. 설비 설계 개요
+    rtf += rtfHeading('Ⅳ. 설비 설계 개요');
+    rtf += rtfSubheading('4.1 모듈 사양');
+    rtf += rtfTable([
+      ['정격출력','장변','단변','거치 단수','경사각','경계 이격'],
+      [val('moduleWatt')+' W', val('moduleLong')+' mm', val('moduleShort')+' mm', val('stackCount')+'단', val('tiltAngle')+'°', val('setbackM')+'m'],
+    ], 1);
+    rtf += rtfSubheading('4.2 배치 시뮬레이션 결과');
+    rtf += rtfTable([
+      ['실제 배치 모듈수','설치 테이블 수 × 단수','예상 설비용량'],
+      [txt('resModulesLayout'), txt('resGrid'), txt('resCapacity')],
+    ], 1);
+    rtf += rtfNote(txt('simNote'));
+    rtf += rtfPara('※ 위성사진 및 모듈 배치도는 「태양광 부지 진단 시스템」 04번 화면을 캡처하여 이 문서에 별도로 삽입하세요.');
+
+    // Ⅴ. 경제성 분석
+    rtf += rtfHeading('Ⅴ. 경제성 분석 (참고용)');
+    rtf += rtfTable([
+      ['설치비(원/kW)','SMP(원/kWh)','REC가격(원/REC)','REC가중치','이용률(%)','O&M(%)','운영기간(년)'],
+      [val('econCapex'), val('econSmp'), val('econRecPrice'), val('econRecWeight'), val('econCf'), val('econOm'), val('econYears')],
+    ], 1);
+    rtf += rtfTable([
+      ['총 사업비','연간 발전량','연간 매출','연간 O&M','단순 회수기간','누적 순이익'],
+      [txt('econCapexTotal'), txt('econGen'), txt('econRevenue'), txt('econOmCost'), txt('econPayback'), txt('econNet')],
+    ], 1);
+    rtf += rtfNote(txt('econNote'));
+
+    // Ⅵ~Ⅷ (판단이 필요한 항목 — 빈 칸으로 유지)
+    rtf += rtfHeading('Ⅵ. 사업 추진일정');
+    rtf += rtfTable([
+      ['단계','주요 내용','기간'],
+      ['부지 검토 및 인허가','부지 진단, 개발행위허가, 농지·산지전용허가','【 】개월'],
+      ['계통연계 협의','한전 계통연계 신청 및 협의','【 】개월'],
+      ['설계 및 조달','구조·전기 설계, 기자재 발주','【 】개월'],
+      ['시공','토목·구조물·전기 공사','【 】개월'],
+      ['준공 및 계통연결','사용전검사, 계통연결, 상업운전','【 】개월'],
+    ], 1);
+
+    rtf += rtfHeading('Ⅶ. 기대효과');
+    rtf += rtfPara('· 유휴·저활용 부지를 활용한 안정적인 장기 임대·발전 수익 창출');
+    rtf += rtfPara('· 연간 ' + (txt('econGen')||'【 】') + ' 발전을 통한 온실가스 감축 효과');
+    rtf += rtfPara('· 지역 신재생에너지 보급목표 달성 기여 및 지역경제 활성화');
+    rtf += rtfPara('· RE100 등 재생에너지 사용 확대 흐름에 대응한 선제적 자산 확보');
+
+    rtf += rtfHeading('Ⅷ. 결론 및 제안');
+    rtf += rtfPara('본 제안서는 ' + (addrList.join(', ')||'【 부지 】') + '에 대한 태양광 발전사업의 타당성을 검토한 결과를 종합한 것이다. 부지현황·인허가·경제성 분석 결과를 바탕으로 사업 추진이 【 타당함 / 조건부 타당함 】 것으로 판단되며, 세부 실행계획에 대한 협의를 제안한다.');
+
+    rtf += rtfHeading('붙임');
+    ['토지(임야)대장 및 지적도','등기부등본','용도지역·지구 확인서(토지이용계획확인원)','모듈 배치 시뮬레이션 도면','개별공시지가 확인서','설비 견적서'].forEach(function(t){
+      rtf += rtfPara('· ' + t);
+    });
+
+    rtf += '}';
+    return rtf;
+  }
+
+  document.getElementById('exportProposalBtn').addEventListener('click', function(){
+    var statusEl = document.getElementById('exportProposalStatus');
+    if(!state.parcels.length){
+      statusEl.textContent = '먼저 필지를 추가해 진단을 실행하세요.';
+      statusEl.style.color = 'var(--bad-ink)';
+      setTimeout(function(){ statusEl.textContent=''; statusEl.style.color=''; }, 3000);
+      return;
+    }
+    try{
+      var rtf = buildProposalRtf();
+      var blob = new Blob([rtf], { type: 'application/rtf' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      var firstAddr = state.parcels[0].addressText.replace(/\s+/g,'_');
+      a.href = url;
+      a.download = '태양광_사업제안서_' + firstAddr + '.rtf';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+      statusEl.style.color = 'var(--ok-ink)';
+      statusEl.textContent = '다운로드됨 ✓ — Word로 열어 이어서 편집하세요.';
+      setTimeout(function(){ statusEl.textContent=''; statusEl.style.color=''; }, 4000);
+    }catch(e){
+      statusEl.style.color = 'var(--bad-ink)';
+      statusEl.textContent = '생성 중 오류가 발생했습니다.';
+    }
   });
 
 })();
