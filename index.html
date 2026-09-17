@@ -51,10 +51,16 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1
 h1,h2,h3{font-family:var(--sans);font-weight:900;letter-spacing:-0.01em;text-wrap:balance;margin:0;}
 .mono{font-family:var(--mono);font-variant-numeric:tabular-nums;}
 .wrap{max-width:1080px;margin:0 auto;}
-header.top{display:flex;flex-direction:column;gap:4px;margin-bottom:18px;}
-header.top .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);}
-header.top h1{font-size:26px;}
-header.top p{color:var(--muted);font-size:13.5px;margin:2px 0 0;}
+header.top{display:flex;flex-direction:column;gap:4px;margin-bottom:22px;padding-bottom:16px;border-bottom:1px solid var(--line);}
+header.top .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700;}
+header.top .titlerow{display:flex;align-items:center;gap:11px;margin-top:6px;}
+header.top .logo{width:38px;height:38px;border-radius:11px;flex:none;display:flex;align-items:center;justify-content:center;font-size:20px;
+  background:linear-gradient(155deg,var(--accent),color-mix(in srgb, var(--accent) 55%, var(--ink) 30%));
+  box-shadow:0 4px 14px color-mix(in srgb, var(--accent) 45%, transparent);}
+header.top h1{font-size:29px;letter-spacing:-0.02em;}
+header.top .titlebar{width:46px;height:4px;border-radius:4px;margin:12px 0 2px;
+  background:linear-gradient(90deg,var(--accent),color-mix(in srgb, var(--accent) 25%, transparent));}
+header.top p{color:var(--muted);font-size:13.5px;margin:2px 0 0;max-width:640px;}
 .searchbar{position:relative;margin:18px 0 6px;}
 .searchbar input{
   width:100%;font-size:15px;padding:13px 46px 13px 16px;border-radius:12px;border:1.5px solid var(--line);
@@ -119,12 +125,15 @@ header.top p{color:var(--muted);font-size:13.5px;margin:2px 0 0;}
 .kv{display:flex;justify-content:space-between;gap:10px;border-bottom:1px dashed var(--line);padding-bottom:6px;font-size:13.5px;}
 .kv .k{color:var(--muted);}
 .kv .v{font-weight:600;text-align:right;}
-table.zonelist{width:100%;border-collapse:collapse;font-size:13px;}
-table.zonelist th{text-align:left;color:var(--muted);font-weight:600;font-size:11.5px;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap;}
-table.zonelist td{padding:8px 8px;border-bottom:1px solid var(--line);vertical-align:top;}
-table.zonelist tr:last-child td{border-bottom:none;}
-table.zonelist tr.totalrow td{font-weight:700;border-top:2px solid var(--line);border-bottom:none;}
-.overflow{overflow-x:auto;}
+table.zonelist{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;border:1px solid var(--line);border-radius:11px;overflow:hidden;}
+table.zonelist thead th{text-align:left;color:var(--muted);font-weight:700;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;padding:10px 12px;background:var(--surface-2);border-bottom:1px solid var(--line);white-space:nowrap;}
+table.zonelist tbody td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top;}
+table.zonelist tbody tr:last-child td{border-bottom:none;}
+table.zonelist tbody tr:nth-child(even):not(.totalrow){background:color-mix(in srgb, var(--surface-2) 55%, transparent);}
+table.zonelist tbody tr:hover:not(.totalrow){background:color-mix(in srgb, var(--accent) 8%, transparent);}
+table.zonelist tr.totalrow{background:color-mix(in srgb, var(--accent) 14%, transparent);}
+table.zonelist tr.totalrow td{font-weight:700;border-top:1.5px solid var(--accent);border-bottom:none;}
+.overflow{overflow-x:auto;border-radius:11px;}
 
 .settings{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px;padding:12px;background:var(--surface-2);border-radius:10px;}
 @media (max-width:760px){.settings{grid-template-columns:repeat(2,1fr);}}
@@ -188,7 +197,11 @@ a{color:var(--accent);}
 
   <header class="top">
     <div class="eyebrow">SOLAR SITE ONE-POINT CHECK</div>
-    <h1>솔라 부지진단</h1>
+    <div class="titlerow">
+      <span class="logo">☀️</span>
+      <h1>솔라 부지진단</h1>
+    </div>
+    <div class="titlebar"></div>
     <p>주소로 필지를 추가하면 지목·용도지역·필지 형상을 확인하고, 모듈 배치 시뮬레이션으로 지상형 설치 최대 용량을 추정합니다. 붙어있는 여러 필지를 추가하면 하나로 합쳐서 계산해요.</p>
   </header>
 
@@ -802,6 +815,7 @@ a{color:var(--accent);}
 
   function zoneExplainHtml(parcels){
     var seen = {}, lines = [];
+    var mismatchGroups = {}, mismatchOrder = [];
     parcels.forEach(function(p){
       var hasSanji = false;
       (p.landUse||[]).forEach(function(z){
@@ -814,8 +828,15 @@ a{color:var(--accent);}
       });
       var jm = jimokOf(p);
       if(hasSanji && SANJI_EXCLUDED_JIMOK[jm]){
-        lines.push('<div class="zonenote" style="color:var(--warn-ink);">⚠ <b>'+escapeHtml(jibunOf(p))+'</b> 필지는 지목이 「'+escapeHtml(jm)+'」로, 산지관리법 제2조상 산지 정의에서 제외되는 지목입니다. 그런데도 산지구분(준보전산지 등)이 함께 표시되는 건, 지적공부(지목)와 산림청 산지구분도가 서로 별도로 관리·갱신되는 시스템이라 갱신 시차가 있거나(과거 임야 → 산지전용허가 후 지목변경, 산지구분도 미갱신), 정식 산지전용 절차 없이 지목만 변경된 경우일 수 있습니다. 관할 시·군·구 산림부서에 재확인하세요.</div>');
+        // group by jimok so the same warning shared by several parcels prints once, not per-parcel
+        if(!mismatchGroups[jm]){ mismatchGroups[jm] = []; mismatchOrder.push(jm); }
+        mismatchGroups[jm].push(jibunOf(p));
       }
+    });
+    mismatchOrder.forEach(function(jm){
+      var jibuns = mismatchGroups[jm];
+      var subject = jibuns.length > 1 ? (jibuns.join(', ') + ' 필지들은') : (jibuns[0] + ' 필지는');
+      lines.push('<div class="zonenote" style="color:var(--warn-ink);">⚠ <b>'+escapeHtml(subject)+'</b> 지목이 「'+escapeHtml(jm)+'」로, 산지관리법 제2조상 산지 정의에서 제외되는 지목입니다. 그런데도 산지구분(준보전산지 등)이 함께 표시되는 건, 지적공부(지목)와 산림청 산지구분도가 서로 별도로 관리·갱신되는 시스템이라 갱신 시차가 있거나(과거 임야 → 산지전용허가 후 지목변경, 산지구분도 미갱신), 정식 산지전용 절차 없이 지목만 변경된 경우일 수 있습니다. 관할 시·군·구 산림부서에 재확인하세요.</div>');
     });
     return lines.join('');
   }
