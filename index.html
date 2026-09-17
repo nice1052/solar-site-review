@@ -329,6 +329,7 @@ a{color:var(--accent);}
             <div class="box"><div class="lbl">면적기준 참고치(상한)</div><div class="val mono" id="resModulesArea">-</div></div>
             <div class="box"><div class="lbl">예상 최대 용량</div><div class="val mono" id="resCapacity">-</div></div>
             <div class="box"><div class="lbl">설치 테이블 수 × 단수</div><div class="val mono" id="resGrid">-</div></div>
+            <div class="box"><div class="lbl">차광률(GCR, 지면 대비 모듈 그림자 비율)</div><div class="val mono" id="resGcr">-</div></div>
           </div>
           <div class="note" id="simNote"></div>
           <div class="note" id="facilityTypeNote"></div>
@@ -589,7 +590,7 @@ a{color:var(--accent);}
   }
 
   // ---------- state: a list of parcels, combined into one analysis ----------
-  var state = { parcels: [], combined: { lat0:null, rect:null, areaM2:0 } };
+  var state = { parcels: [], combined: { lat0:null, lon0:null, rect:null, areaM2:0 }, lastLayout:null };
 
   // ---------- DOM refs ----------
   var addrInput = document.getElementById('addrInput');
@@ -750,7 +751,7 @@ a{color:var(--accent);}
   function computeCombinedGeometry(){
     var withGeom = state.parcels.filter(function(p){ return p.polygonPtsLonLat && p.polygonPtsLonLat.length >= 3; });
     if(!withGeom.length){
-      state.combined = { lat0:null, rect:null, areaM2:0 };
+      state.combined = { lat0:null, lon0:null, rect:null, areaM2:0 };
       state.parcels.forEach(function(p){ p.projected=null; p.areaM2=0; });
       return;
     }
@@ -779,7 +780,14 @@ a{color:var(--accent);}
       if(p[1]<minY) minY=p[1]; if(p[1]>maxY) maxY=p[1];
     });
     var rect = { angle:0, minX:minX, maxX:maxX, minY:minY, maxY:maxY, w:maxX-minX, h:maxY-minY };
-    state.combined = { lat0: lat0, rect: rect, areaM2: totalArea };
+    state.combined = { lat0: lat0, lon0: lon0, rect: rect, areaM2: totalArea };
+  }
+  // inverse of toXY() — local projected meters back to [lon, lat]. Since rect.angle is always 0
+  // (layout frame fixed to true north), no de-rotation is needed before converting back.
+  function fromXY(x, y, lon0, lat0){
+    var mPerDegLat = 111320;
+    var mPerDegLon = 111320 * Math.cos(lat0 * Math.PI/180);
+    return [ lon0 + x/mPerDegLon, lat0 + y/mPerDegLat ];
   }
 
   function recomputeAll(){
@@ -827,6 +835,26 @@ a{color:var(--accent);}
     });
     if(bounds) leafletMap.fitBounds(bounds, { padding:[28,28], maxZoom:19 });
     setTimeout(function(){ if(leafletMap) leafletMap.invalidateSize(); }, 60);
+    updateMapModules();
+  }
+
+  // ---------- module table footprints, drawn directly on top of the satellite photo ----------
+  // (separate from updateMap()'s parcel-boundary layers so tweaking module settings doesn't
+  // re-trigger a bounds/zoom reset — it only redraws these lightweight overlay rectangles.)
+  var leafletModuleLayers = [];
+  function updateMapModules(){
+    if(!leafletMap) return;
+    leafletModuleLayers.forEach(function(l){ leafletMap.removeLayer(l); });
+    leafletModuleLayers = [];
+    var ll = state.lastLayout;
+    var lon0 = state.combined.lon0, lat0 = state.combined.lat0;
+    if(!ll || !ll.tables || !ll.tables.length || lon0==null || lat0==null) return;
+    ll.tables.forEach(function(t){
+      var corners = [[t.x0,t.y0],[t.x1,t.y0],[t.x1,t.y1],[t.x0,t.y1]];
+      var latlngs = corners.map(function(c){ var ll2 = fromXY(c[0], c[1], lon0, lat0); return [ll2[1], ll2[0]]; });
+      var poly = L.polygon(latlngs, { color:'#2B6CB0', weight:1, fillColor:'#4C8FE0', fillOpacity:0.55 }).addTo(leafletMap);
+      leafletModuleLayers.push(poly);
+    });
   }
 
   // ---------- checklist chip / zone explain dictionary ----------
@@ -1071,15 +1099,18 @@ a{color:var(--accent);}
   }
 
   // ---------- module layout simulation (combined across all parcels) ----------
+  var GCR_MAX_AGRIVOLTAIC = 0.30; // 영농형태양광특별법 기준 기술기준(초안): 모듈 면적비(차광률) 30% 미만
   function currentModuleSpec(){
+    var isAgri = document.getElementById('facilityType').value === 'agrivoltaic';
     return {
       watt: parseFloat(document.getElementById('moduleWatt').value) || 645,
       longMm: parseFloat(document.getElementById('moduleLong').value) || 2465,
       shortMm: parseFloat(document.getElementById('moduleShort').value) || 1134,
-      stack: parseFloat(document.getElementById('stackCount').value) || 2,
+      stack: isAgri ? 1 : (parseFloat(document.getElementById('stackCount').value) || 2),
       tiltDeg: parseFloat(document.getElementById('tiltAngle').value) || 30,
       setback: parseFloat(document.getElementById('setbackM').value) || 3,
-      usableRatioPct: parseFloat(document.getElementById('usableRatio').value) || 75
+      usableRatioPct: parseFloat(document.getElementById('usableRatio').value) || 75,
+      isAgri: isAgri
     };
   }
 
@@ -1093,6 +1124,21 @@ a{color:var(--accent);}
     }
     runSimulation();
   });
+
+  // 영농형 태양광은 2단 이상 거치 구조가 없으므로(작물 채광·농기계 통행 확보 목적) 1단으로 고정
+  var lastGeneralStackValue = '2';
+  function syncStackCountLock(){
+    var isAgri = document.getElementById('facilityType').value === 'agrivoltaic';
+    var stackSel = document.getElementById('stackCount');
+    if(isAgri){
+      if(!stackSel.disabled) lastGeneralStackValue = stackSel.value;
+      stackSel.disabled = true;
+      stackSel.value = '1';
+    } else {
+      stackSel.disabled = false;
+      if(stackSel.value === '1' && lastGeneralStackValue !== '1') stackSel.value = lastGeneralStackValue;
+    }
+  }
   ['moduleWatt','moduleLong','moduleShort','stackCount','tiltAngle','setbackM','usableRatio'].forEach(function(id){
     document.getElementById(id).addEventListener('input', runSimulation);
   });
@@ -1133,7 +1179,10 @@ a{color:var(--accent);}
       document.getElementById('resModulesArea').textContent = '-';
       document.getElementById('resCapacity').textContent = '-';
       document.getElementById('resGrid').textContent = '-';
+      document.getElementById('resGcr').textContent = '-';
       note.textContent = '필지 경계 정보를 불러오지 못해 배치 시뮬레이션을 표시할 수 없습니다.';
+      state.lastLayout = null;
+      updateMapModules();
       updateEconomics(0);
       return;
     }
@@ -1149,7 +1198,14 @@ a{color:var(--accent);}
 
     var tableDepth = spec.stack * shortM * Math.cos(tiltRad);
     var tableRise = spec.stack * shortM * Math.sin(tiltRad);
-    var pitch = tableDepth + (tableRise / Math.tan(sunAltRad));
+    var shadingPitch = tableDepth + (tableRise / Math.tan(sunAltRad));
+
+    // 영농형 태양광: 차광률(GCR = tableDepth/pitch)이 30%를 넘지 않도록 행간을 추가로 넓힘.
+    // 경사각(tiltDeg)이 커지면 tableDepth·tableRise가 모두 변하므로, 일반/영농형 모두
+    // 이격(행간)이 경사각에 따라 달라진다 — 위 shadingPitch 계산식 자체가 tiltRad에 종속적임.
+    var gcrMinPitch = spec.isAgri ? (tableDepth / GCR_MAX_AGRIVOLTAIC) : 0;
+    var pitch = Math.max(shadingPitch, gcrMinPitch);
+    var gcrPct = pitch>0 ? (tableDepth/pitch*100) : 0;
 
     var rotatedPolys = state.parcels
       .filter(function(p){ return p.projected && p.projected.length>=3; })
@@ -1169,12 +1225,16 @@ a{color:var(--accent);}
     document.getElementById('resModulesArea').textContent = fmt(areaBasedModules,0) + ' 매';
     document.getElementById('resCapacity').textContent = fmt(capacityKw,1) + ' kWp';
     document.getElementById('resGrid').textContent = fmt(tableCount,0) + '개 × ' + spec.stack + '단';
+    document.getElementById('resGcr').textContent = fmt(gcrPct,1) + '%' + (spec.isAgri ? (gcrPct>30.5?' (30% 초과 — 확인필요)':' (30% 이내)') : '');
 
     var nParcels = rotatedPolys.length;
     note.textContent = (nParcels>1 ? (nParcels+'개 필지를 하나로 합쳐 계산했습니다. ') : '') +
-      '설계 기준: 위도 ' + lat.toFixed(2) + '°N 동지 태양고도 ' + sunAltDeg.toFixed(1) + '°에서 앞줄 그늘이 뒷줄에 닿지 않도록 행간(pitch) ' + pitch.toFixed(2) + 'm 적용. 각 테이블(가로 ' + longM.toFixed(2) + 'm × 세로 ' + tableDepth.toFixed(2) + 'm, ' + spec.stack + '단 모듈 ' + spec.stack + '매 탑재)의 네 꼭짓점이 추가된 필지들 중 하나에라도 들어가는지 하나씩 검사해 배치했습니다(필지 경계선이 서로 붙어있으면 그 경계를 넘어서도 배치됩니다). 면적기준 참고치는 가용면적비율 ' + spec.usableRatioPct + '%만 적용한 단순 상한값입니다.';
+      '설계 기준: 위도 ' + lat.toFixed(2) + '°N 동지 태양고도 ' + sunAltDeg.toFixed(1) + '°에서 앞줄 그늘이 뒷줄에 닿지 않도록 행간(pitch) ' + pitch.toFixed(2) + 'm 적용(경사각이 커질수록 그늘이 길어져 행간도 늘어납니다). 각 테이블(가로 ' + longM.toFixed(2) + 'm × 세로 ' + tableDepth.toFixed(2) + 'm, ' + spec.stack + '단 모듈 ' + spec.stack + '매 탑재)의 네 꼭짓점이 추가된 필지들 중 하나에라도 들어가는지 하나씩 검사해 배치했습니다(필지 경계선이 서로 붙어있으면 그 경계를 넘어서도 배치됩니다). 면적기준 참고치는 가용면적비율 ' + spec.usableRatioPct + '%만 적용한 단순 상한값입니다.' +
+      (spec.isAgri ? ' 영농형 태양광은 1단 고정 + 차광률(GCR) 30% 이내를 만족하도록 행간을 자동으로 넓혀 계산했습니다(현재 ' + gcrPct.toFixed(1) + '%).' : '');
 
     drawSvg(rect, rotatedPolys, layout, tableDepth);
+    state.lastLayout = { tables: layout.tables, rect: rect };
+    updateMapModules();
     updateEconomics(capacityKw);
   }
 
@@ -1250,7 +1310,7 @@ a{color:var(--accent);}
   });
 
   // ---------- 설비 구분(일반/영농형) 안내 ----------
-  var AGRIVOLTAIC_NOTE = '영농형 태양광은 농지 위에서 영농과 태양광 발전을 병행하는 방식입니다. 2026.6.16 제정 · 2026.12.17 시행되는 「영농형 태양광 발전사업의 활성화 및 지원에 관한 법률」(영농형태양광특별법)에 따라 농업인·주민참여협동조합·농업법인만 사업권을 가지며, 사업구역은 원칙적으로 농업진흥지역 밖 농지로 한정됩니다. 사업기간은 최초 5년+연장 18년, 최대 23년까지 가능하고(기존 농지법상 일시사용허가 8년보다 확대), 임차농 보호를 위한 계약갱신 의무·임대료 인상 5% 상한이 적용됩니다. 모듈 면적비 30% 미만 등 세부 기술기준은 하위법령 확정에 따라 달라질 수 있습니다.';
+  var AGRIVOLTAIC_NOTE = '영농형 태양광은 농지 위에서 영농과 태양광 발전을 병행하는 방식입니다. 2026.6.16 제정 · 2026.12.17 시행되는 「영농형 태양광 발전사업의 활성화 및 지원에 관한 법률」(영농형태양광특별법)에 따라 농업인·주민참여협동조합·농업법인만 사업권을 가지며, 사업구역은 원칙적으로 농업진흥지역 밖 농지로 한정됩니다. 사업기간은 최초 5년+연장 18년, 최대 23년까지 가능하고(기존 농지법상 일시사용허가 8년보다 확대), 임차농 보호를 위한 계약갱신 의무·임대료 인상 5% 상한이 적용됩니다. 모듈 면적비(차광률) 30% 미만 기준에 맞춰 이 도구는 거치 단수를 1단으로 고정하고 행간을 자동으로 넓혀 계산합니다 — 세부 기술기준은 하위법령 확정에 따라 달라질 수 있습니다.';
   var CAPEX_BY_TYPE = { general: 1300000, agrivoltaic: 1600000 };
   function updateFacilityTypeNote(){
     var type = document.getElementById('facilityType').value;
@@ -1258,10 +1318,12 @@ a{color:var(--accent);}
     var econCapexEl = document.getElementById('econCapex');
     if(CAPEX_BY_TYPE.hasOwnProperty(type)){
       econCapexEl.value = CAPEX_BY_TYPE[type];
-      updateEconomics(lastCapacityKw);
     }
+    syncStackCountLock();
+    runSimulation(); // stack lock + GCR constraint + capex default all feed back into the layout/economics
   }
   document.getElementById('facilityType').addEventListener('change', updateFacilityTypeNote);
+  syncStackCountLock();
 
   function drawSvg(rect, rotatedPolys, layout, tableDepth){
     var svg = document.getElementById('simSvg');
@@ -1364,36 +1426,37 @@ a{color:var(--accent);}
     OK:'1F7A45', WARN:'9C6A0C', BAD:'B03A2E', SURFACE2:'EFF2ED', WHITE:'FFFFFF'
   };
   var PPT_FONT = 'Malgun Gothic';
-  var MX = 0.55, CW = 13.333 - 0.55*2; // content x / width inside margins
+  var PAGE_W = 8.27, PAGE_H = 11.69; // A4 portrait — simple, printable proposal rather than a slide deck
+  var MX = 0.5, CW = PAGE_W - MX*2;
 
   function pptxTitle(slide, no, text){
     slide.addText(no ? (no + '. ' + text) : text, {
-      x:MX, y:0.35, w:CW, h:0.6, fontFace:PPT_FONT, fontSize:24, bold:true, color:PPT.DARK, align:'left'
+      x:MX, y:0.4, w:CW, h:0.5, fontFace:PPT_FONT, fontSize:19, bold:true, color:PPT.DARK, align:'left'
     });
   }
   function pptxSub(slide, text, y){
-    slide.addText(text, { x:MX, y:y, w:CW, h:0.38, fontFace:PPT_FONT, fontSize:15, bold:true, color:PPT.ACCENT, align:'left' });
+    slide.addText(text, { x:MX, y:y, w:CW, h:0.32, fontFace:PPT_FONT, fontSize:12.5, bold:true, color:PPT.ACCENT, align:'left' });
   }
   function pptxPara(slide, text, y, opts){
     opts = opts || {};
-    slide.addText(text, Object.assign({ x:MX, y:y, w:CW, h:opts.h||0.5, fontFace:PPT_FONT, fontSize:opts.fontSize||12,
+    slide.addText(text, Object.assign({ x:MX, y:y, w:CW, h:opts.h||0.4, fontFace:PPT_FONT, fontSize:opts.fontSize||11,
       color:opts.color||PPT.DARK, align:'left', valign:'top' }, opts.extra||{}));
   }
   function pptxNote(slide, text, y, h){
     if(!text) return;
-    slide.addText(text, { x:MX, y:y, w:CW, h:h||0.5, fontFace:PPT_FONT, fontSize:9.5, italic:true, color:PPT.MUTED, align:'left', valign:'top' });
+    slide.addText(text, { x:MX, y:y, w:CW, h:h||0.4, fontFace:PPT_FONT, fontSize:8.5, italic:true, color:PPT.MUTED, align:'left', valign:'top' });
   }
-  function pptxBadge(slide, text, color, y){
+  function pptxBadge(slide, text, color, y, h){
     slide.addText(text, {
-      x:MX, y:y, w:CW, h:0.5, fontFace:PPT_FONT, fontSize:14, bold:true, color:PPT.WHITE, align:'left', valign:'middle',
-      fill:{ color:color }, margin:[6,10,6,10]
+      x:MX, y:y, w:CW, h:h||0.42, fontFace:PPT_FONT, fontSize:11.5, bold:true, color:PPT.WHITE, align:'left', valign:'middle',
+      fill:{ color:color }, margin:[4,10,4,10]
     });
   }
   function pptxTable(slide, rows, x, y, w, opts){
-    if(!rows || !rows.length) return;
+    if(!rows || !rows.length) return 0;
     opts = opts || {};
     var headerN = opts.headerRows || 1;
-    var fontSize = opts.fontSize || 11;
+    var fontSize = opts.fontSize || 9.5;
     var nCols = rows[0].length;
     // pad any short row (e.g. a colspan'd "no data" message row) so every row has the same
     // column count — otherwise pptxgenjs distorts widths/colors on the mismatched row.
@@ -1403,6 +1466,7 @@ a{color:var(--accent);}
       return row;
     });
     var colW = opts.colW || new Array(nCols).fill(w/nCols);
+    var rowH = opts.rowH || 0.28;
     var body = rows.map(function(row, ri){
       var isHead = ri < headerN;
       return row.map(function(cell){
@@ -1418,166 +1482,131 @@ a{color:var(--accent);}
         };
       });
     });
-    slide.addTable(body, { x:x, y:y, w:w, colW:colW, rowH:opts.rowH||0.32, autoPage:false });
+    slide.addTable(body, { x:x, y:y, w:w, colW:colW, rowH:rowH, autoPage:false });
+    return rowH * rows.length; // so callers can stack the next element right below
   }
 
-  function addSlideNumber(slide, i, total){
-    slide.addText(i+' / '+total, { x:12.4, y:7.12, w:0.8, h:0.3, fontFace:PPT_FONT, fontSize:9, color:PPT.MUTED, align:'right' });
+  function addPageNumber(slide, i, total){
+    slide.addText(i+' / '+total, { x:PAGE_W-1.0, y:PAGE_H-0.45, w:0.7, h:0.3, fontFace:PPT_FONT, fontSize:8.5, color:PPT.MUTED, align:'right' });
   }
 
+  // 간단하고 짧은 제안서: 표지 + 4개 본문 페이지 + 붙임, A4 세로.
   async function buildProposalPptx(){
     var addrList = state.parcels.map(function(p){ return p.addressText; });
     var today = new Date();
     var dateStr = today.getFullYear()+'.'+String(today.getMonth()+1).padStart(2,'0')+'.'+String(today.getDate()).padStart(2,'0');
 
     var pres = new PptxGenJS();
-    pres.defineLayout({ name:'PROPOSAL', width:13.333, height:7.5 });
-    pres.layout = 'PROPOSAL';
+    pres.defineLayout({ name:'PROPOSAL_PORTRAIT', width:PAGE_W, height:PAGE_H });
+    pres.layout = 'PROPOSAL_PORTRAIT';
 
     var slides = [];
 
     // 0. 표지
     var s0 = pres.addSlide(); slides.push(s0);
     s0.background = { color: PPT.DARK };
-    s0.addText('태양광 발전사업 제안서', { x:0.8, y:2.5, w:11.73, h:1.0, fontFace:PPT_FONT, fontSize:36, bold:true, color:PPT.WHITE, align:'center' });
-    s0.addText(addrList.length ? addrList.join(' / ') : '[ 부지 주소를 입력하세요 ]', { x:0.8, y:3.6, w:11.73, h:0.5, fontFace:PPT_FONT, fontSize:16, italic:true, color:PPT.ACCENT, align:'center' });
+    s0.addText('태양광 발전사업 제안서', { x:0.6, y:4.6, w:PAGE_W-1.2, h:0.9, fontFace:PPT_FONT, fontSize:27, bold:true, color:PPT.WHITE, align:'center' });
+    s0.addText(addrList.length ? addrList.join(' / ') : '[ 부지 주소를 입력하세요 ]', { x:0.6, y:5.5, w:PAGE_W-1.2, h:0.5, fontFace:PPT_FONT, fontSize:13, italic:true, color:PPT.ACCENT, align:'center' });
     s0.addText('제안기관: ㈜클레스(KLES)   ·   생성일: ' + dateStr + '   ·   「태양광 부지 진단 시스템」에서 자동 생성된 초안',
-      { x:0.8, y:4.3, w:11.73, h:0.4, fontFace:PPT_FONT, fontSize:11, color:'B9C2BC', align:'center' });
+      { x:0.6, y:6.1, w:PAGE_W-1.2, h:0.4, fontFace:PPT_FONT, fontSize:9.5, color:'B9C2BC', align:'center' });
 
-    // Ⅰ. 사업 개요
+    // Ⅰ. 사업 개요 + 인허가 요약
     var s1 = pres.addSlide(); slides.push(s1);
     pptxTitle(s1, 'Ⅰ', '사업 개요');
-    pptxPara(s1, '본 사업은 ' + (addrList.join(', ')||'[ 부지 주소 ]') + ' 일원의 유휴 부지를 활용하여 태양광 발전설비를 설치·운영함으로써, 안정적인 신재생에너지 발전수익 창출과 온실가스 감축에 기여하는 것을 목적으로 한다.', 1.1, {h:0.7});
-    pptxTable(s1, [
+    var y1 = 1.05;
+    var h1 = pptxTable(s1, [
       ['구분','내용'],
       ['사업위치', addrList.join(', ') || '【 부지 주소 】'],
       ['필지 수', String(state.parcels.length) + '개'],
       ['설비용량', txt('resCapacity') || '【 】'],
       ['사업방식', '【 한전 계통판매 / PPA / 자가소비 중 선택 】'],
       ['사업기간', '착공 【 YYYY.MM 】 ~ 준공 【 YYYY.MM 】'],
-    ], MX, 2.0, CW, { colW:[CW*0.25, CW*0.75], rowH:0.42, fontSize:13 });
-
-    // Ⅱ-1. 부지현황: 토지현황 + 용도지역
-    var s2 = pres.addSlide(); slides.push(s2);
-    pptxTitle(s2, 'Ⅱ', '부지현황 분석 (1/2)');
-    pptxSub(s2, '2.1 토지 현황', 1.15);
-    var landRows = domTableRows(document.querySelector('#landInfoBody').closest('table'));
-    pptxTable(s2, landRows, MX, 1.55, CW, { rowH:0.32, fontSize:10.5 });
-    var zLandH = 0.32 * landRows.length + 0.35;
-    pptxSub(s2, '2.2 용도지역 · 지구 현황', 1.55 + zLandH);
-    var zoneRows = domTableRows(document.querySelector('#zoneTableBody').closest('table'));
-    if(zoneRows.length > 1) pptxTable(s2, zoneRows, MX, 1.9 + zLandH, CW, { rowH:0.32, fontSize:10 });
-    else pptxPara(s2, '등록된 용도지역/지구 정보가 없습니다.', 1.9 + zLandH, {fontSize:11});
-
-    // Ⅱ-2. 부지현황: 설치 가능여부 판정 + 유의사항
-    var s3 = pres.addSlide(); slides.push(s3);
-    pptxTitle(s3, 'Ⅱ', '부지현황 분석 (2/2) — 용도지역 기준 설치 가능여부');
+    ], MX, y1, CW, { colW:[CW*0.28, CW*0.72], rowH:0.36, fontSize:10.5 });
+    y1 += h1 + 0.3;
+    pptxSub(s1, '인허가 요약', y1); y1 += 0.4;
     var zv = zoneInstallVerdict(state.parcels);
     var zvColor = zv.level === 'block' ? PPT.BAD : (zv.level === 'warn' ? PPT.WARN : PPT.OK);
-    pptxBadge(s3, zv.text, zvColor, 1.15);
-    var zoneNotes = stripTagsLines(document.getElementById('zoneExplain'));
-    var noteY = 1.9;
-    zoneNotes.forEach(function(n){
-      pptxPara(s3, n, noteY, { fontSize:10.5, h:0.5, color:PPT.MUTED });
-      noteY += 0.55;
-    });
-    pptxSub(s3, '2.3 산지 · 농지 관련 유의사항', noteY + 0.15);
-    pptxPara(s3, '산지관리법 제2조에 따라 지목이 전·답·과수원·목장용지인 토지는 법상 "산지" 정의에서 제외된다. 지목이 전·답·과수원인 농지를 전용할 경우 다음 장의 농지전용부담금이 발생한다.', noteY + 0.55, {fontSize:11, h:0.6});
-
-    // Ⅲ-1. 인허가: 이격거리 + 농지전용부담금
-    var s4 = pres.addSlide(); slides.push(s4);
-    pptxTitle(s4, 'Ⅲ', '인허가 검토 (1/2)');
-    pptxSub(s4, '3.1 이격거리 규제 현황 (국가 상한, 2026.9.18 시행)', 1.15);
-    pptxTable(s4, [
-      ['구분','국가 상한'],
-      ['태양광 · 주거지역', '최대 200m 이내에서 지자체 조례로 결정'],
-      ['태양광 · 도로', '이격거리 규제 신설 금지(폐지)'],
-      ['풍력 · 주거지역(5호 이상)', '최대 1,500m 이내'],
-      ['풍력 · 도로', '최대 500m 이내'],
-    ], MX, 1.55, CW, { colW:[CW*0.4, CW*0.6], rowH:0.32, fontSize:11 });
+    pptxBadge(s1, '용도지역 — ' + zv.text, zvColor, y1); y1 += 0.55;
     var setbackSel = document.getElementById('setbackVerdict').value;
-    var setbackText = setbackSel === 'ok' ? '✅ 이격거리 기준 충족 — 설치 가능'
-      : setbackSel === 'fail' ? '🚫 이격거리 기준 미충족 — 설치 불가능' : '❔ 이격거리 기준 확인 전 — 관할 조례 확인 필요';
+    var setbackText = setbackSel === 'ok' ? '✅ 이격거리 — 기준 충족(설치 가능)'
+      : setbackSel === 'fail' ? '🚫 이격거리 — 기준 미충족(설치 불가능)' : '❔ 이격거리 — 확인 전(관할 조례 확인 필요)';
     var setbackColor = setbackSel === 'ok' ? PPT.OK : (setbackSel === 'fail' ? PPT.BAD : PPT.MUTED);
-    pptxBadge(s4, setbackText, setbackColor, 3.5);
-    pptxSub(s4, '3.2 농지전용부담금 산정', 4.15);
-    var farmRows = domTableRows(document.querySelector('#farmlandBody').closest('table'));
-    pptxTable(s4, farmRows, MX, 4.55, CW, { rowH:0.32, fontSize:9.5 });
-
-    // Ⅲ-2. 인허가: 계통연계 여유용량
-    var s5 = pres.addSlide(); slides.push(s5);
-    pptxTitle(s5, 'Ⅲ', '인허가 검토 (2/2) — 계통연계(선로) 여유용량');
+    pptxBadge(s1, setbackText, setbackColor, y1); y1 += 0.55;
     var gridAvail = document.getElementById('gridAvailable').value;
     var gridCapVal = val('gridCapacityKw');
-    var gridText, gridColor;
-    if(gridAvail === 'no'){ gridText = '🚫 계통연계 불가능'; gridColor = PPT.BAD; }
-    else if(gridAvail === 'yes'){ gridText = '✅ 계통연계 가능'; gridColor = PPT.OK; }
-    else { gridText = '❔ 계통연계 여부 확인 전'; gridColor = PPT.MUTED; }
-    pptxBadge(s5, gridText, gridColor, 1.15);
-    pptxTable(s5, [
-      ['구분','내용'],
-      ['한전 확인 결과', gridAvail === 'yes' ? '가능' : (gridAvail === 'no' ? '불가능' : '확인 전')],
-      ['여유용량', gridCapVal ? (gridCapVal + ' kW') : '【 】'],
-      ['본 사업 설비용량', txt('resCapacity') || '【 】'],
-      ['용량 충족 여부', (function(){
-          var cap = parseFloat(gridCapVal);
-          if(gridAvail === 'no') return '불가(계통연계 불가능)';
-          if(isNaN(cap) || !lastCapacityKw) return '확인 필요';
-          return cap >= lastCapacityKw ? '충족' : '부족';
-        })()],
-    ], MX, 2.0, CW, { colW:[CW*0.3, CW*0.7], rowH:0.4, fontSize:12 });
-    pptxNote(s5, '조회 경로: 한전 사이버지점(online.kepco.co.kr) → 자주찾는서비스 → 배전선로 여유용량 조회. 조회 주소: ' + (addrList.join(' / ')||'【 】'), 4.4, 0.6);
+    var gridSuffix = (function(){
+      var cap = parseFloat(gridCapVal);
+      if(gridAvail === 'no') return '';
+      if(isNaN(cap) || !lastCapacityKw) return '';
+      return ' (' + (cap>=lastCapacityKw ? '용량 충족' : '용량 부족') + ')';
+    })();
+    var gridText = gridAvail === 'no' ? '🚫 계통연계 — 불가능'
+      : gridAvail === 'yes' ? ('✅ 계통연계 — 가능' + gridSuffix) : '❔ 계통연계 — 확인 전';
+    var gridColor = gridAvail === 'no' ? PPT.BAD : (gridAvail === 'yes' ? PPT.OK : PPT.MUTED);
+    pptxBadge(s1, gridText, gridColor, y1); y1 += 0.55;
+    pptxNote(s1, '여유용량 ' + (gridCapVal ? (gridCapVal+'kW') : '미입력') + ' · 조회: 한전 사이버지점 → 자주찾는서비스 → 배전선로 여유용량 조회', y1, 0.3);
 
-    // Ⅳ. 설비 설계 개요
-    var s6 = pres.addSlide(); slides.push(s6);
-    pptxTitle(s6, 'Ⅳ', '설비 설계 개요');
-    var facilityType = document.getElementById('facilityType').value;
-    var facilityLabel = facilityType === 'agrivoltaic' ? '영농형 태양광 (농지 병행)' : '일반 태양광';
-    pptxBadge(s6, '설비 구분: ' + facilityLabel, PPT.ACCENT, 1.15);
-    var fyPos = 1.85;
-    if(facilityType === 'agrivoltaic'){
-      pptxNote(s6, AGRIVOLTAIC_NOTE, fyPos, 0.75);
-      fyPos += 0.85;
+    // Ⅱ. 부지현황
+    var s2 = pres.addSlide(); slides.push(s2);
+    pptxTitle(s2, 'Ⅱ', '부지현황 분석');
+    var y2 = 1.05;
+    pptxSub(s2, '토지 현황', y2); y2 += 0.35;
+    var landRows = domTableRows(document.querySelector('#landInfoBody').closest('table'));
+    y2 += pptxTable(s2, landRows, MX, y2, CW, { rowH:0.3, fontSize:9.5 }) + 0.3;
+    pptxSub(s2, '용도지역 · 지구 현황', y2); y2 += 0.35;
+    var zoneRows = domTableRows(document.querySelector('#zoneTableBody').closest('table'));
+    if(zoneRows.length > 1){
+      y2 += pptxTable(s2, zoneRows, MX, y2, CW, { rowH:0.3, fontSize:9, colW:[CW*0.24,CW*0.34,CW*0.2,CW*0.22] }) + 0.3;
+    } else {
+      pptxPara(s2, '등록된 용도지역/지구 정보가 없습니다.', y2, {fontSize:10}); y2 += 0.4;
     }
-    pptxSub(s6, '4.1 모듈 사양', fyPos);
-    pptxTable(s6, [
+    pptxNote(s2, '※ 산지관리법 제2조에 따라 지목이 전·답·과수원·목장용지인 토지는 법상 "산지" 정의에서 제외되며, 이런 농지를 전용할 경우 농지전용부담금이 발생합니다(다음 장 참고).', y2, 0.5);
+
+    // Ⅲ. 설비 및 경제성
+    var s3 = pres.addSlide(); slides.push(s3);
+    pptxTitle(s3, 'Ⅲ', '설비 설계 및 경제성 분석');
+    var y3 = 1.05;
+    var facilityType = document.getElementById('facilityType').value;
+    var facilityLabel = facilityType === 'agrivoltaic' ? '영농형 태양광 (농지 병행 · 1단 고정 · 차광률 30% 이내)' : '일반 태양광';
+    pptxBadge(s3, '설비 구분 — ' + facilityLabel, PPT.ACCENT, y3); y3 += 0.5;
+    if(facilityType === 'agrivoltaic'){
+      pptxNote(s3, '「영농형태양광특별법」(2026.12.17 시행) 적용 · 사업기간 최대 23년(최초 5년+연장 18년) · 농업인·주민참여협동조합·농업법인만 사업권 보유', y3, 0.35);
+      y3 += 0.4;
+    }
+    pptxSub(s3, '모듈 사양 · 배치 결과', y3); y3 += 0.35;
+    y3 += pptxTable(s3, [
       ['정격출력','장변','단변','거치 단수','경사각','경계 이격'],
-      [val('moduleWatt')+' W', val('moduleLong')+' mm', val('moduleShort')+' mm', val('stackCount')+'단', val('tiltAngle')+'°', val('setbackM')+'m'],
-    ], MX, fyPos+0.4, CW, { rowH:0.36, fontSize:11.5 });
-    pptxSub(s6, '4.2 배치 시뮬레이션 결과', fyPos+1.3);
-    pptxTable(s6, [
-      ['실제 배치 모듈수','설치 테이블 수 × 단수','예상 설비용량'],
-      [txt('resModulesLayout'), txt('resGrid'), txt('resCapacity')],
-    ], MX, fyPos+1.7, CW, { rowH:0.4, fontSize:12.5 });
-    pptxNote(s6, txt('simNote'), fyPos+2.5, 0.7);
-
-    // Ⅴ. 경제성 분석
-    var s7 = pres.addSlide(); slides.push(s7);
-    pptxTitle(s7, 'Ⅴ', '경제성 분석 (참고용)');
-    pptxTable(s7, [
-      ['설치비(원/kW)','SMP(원/kWh)','REC가격(원/REC)','REC가중치','이용률(%)','O&M(%)','운영기간(년)'],
-      [val('econCapex'), val('econSmp'), val('econRecPrice'), val('econRecWeight'), val('econCf'), val('econOm'), val('econYears')],
-    ], MX, 1.2, CW, { rowH:0.42, fontSize:11 });
-    pptxTable(s7, [
-      ['총 사업비','연간 발전량','연간 매출','연간 O&M','단순 회수기간','누적 순이익'],
+      [val('moduleWatt')+'W', val('moduleLong')+'mm', val('moduleShort')+'mm', val('stackCount')+'단', val('tiltAngle')+'°', val('setbackM')+'m'],
+    ], MX, y3, CW, { rowH:0.32, fontSize:9.5 }) + 0.15;
+    y3 += pptxTable(s3, [
+      ['배치 모듈수','테이블수×단수','설비용량','차광률(GCR)'],
+      [txt('resModulesLayout'), txt('resGrid'), txt('resCapacity'), txt('resGcr')],
+    ], MX, y3, CW, { rowH:0.32, fontSize:9.5 }) + 0.3;
+    pptxSub(s3, '경제성 분석 (참고용)', y3); y3 += 0.35;
+    y3 += pptxTable(s3, [
+      ['설치비/kW','SMP','REC가격','REC가중치','이용률','O&M','기간'],
+      [val('econCapex'), val('econSmp'), val('econRecPrice'), val('econRecWeight'), val('econCf')+'%', val('econOm')+'%', val('econYears')+'년'],
+    ], MX, y3, CW, { rowH:0.32, fontSize:8.5 }) + 0.15;
+    y3 += pptxTable(s3, [
+      ['총사업비','연간발전량','연간매출','연간O&M','회수기간','누적순이익'],
       [txt('econCapexTotal'), txt('econGen'), txt('econRevenue'), txt('econOmCost'), txt('econPayback'), txt('econNet')],
-    ], MX, 2.2, CW, { rowH:0.5, fontSize:11.5 });
-    pptxNote(s7, txt('econNote'), 3.3, 1.4);
+    ], MX, y3, CW, { rowH:0.32, fontSize:8.5 }) + 0.25;
+    pptxNote(s3, '단순 참고용 추정치이며, 실제 사업성은 EPC사 견적과 최신 SMP·REC 시세로 재검토가 필요합니다.', y3, 0.35);
 
-    // Ⅵ. 결론 및 제안
-    var s8 = pres.addSlide(); slides.push(s8);
-    pptxTitle(s8, 'Ⅵ', '결론 및 제안');
-    pptxPara(s8, '본 제안서는 ' + (addrList.join(', ')||'【 부지 】') + '에 대한 태양광 발전사업의 타당성을 검토한 결과를 종합한 것이다. 부지현황·인허가·경제성 분석 결과를 바탕으로 사업 추진이 【 타당함 / 조건부 타당함 】 것으로 판단되며, 세부 실행계획에 대한 협의를 제안한다.', 1.3, {h:1.2, fontSize:14});
+    // Ⅳ. 결론 및 제안
+    var s4 = pres.addSlide(); slides.push(s4);
+    pptxTitle(s4, 'Ⅳ', '결론 및 제안');
+    pptxPara(s4, '본 제안서는 ' + (addrList.join(', ')||'【 부지 】') + '에 대한 태양광 발전사업의 타당성을 검토한 결과를 종합한 것이다. 부지현황·인허가·경제성 분석 결과를 바탕으로 사업 추진이 【 타당함 / 조건부 타당함 】 것으로 판단되며, 세부 실행계획에 대한 협의를 제안한다.', 1.1, {h:1.1, fontSize:12});
 
     // 붙임
-    var s9 = pres.addSlide(); slides.push(s9);
-    pptxTitle(s9, null, '붙임');
-    s9.addShape('rect', { x:MX, y:1.3, w:CW, h:5.4, fill:{color:PPT.SURFACE2}, line:{color:PPT.LINE, width:1.5, dashType:'dash'} });
-    s9.addText('위성사진 + 모듈 배치 시뮬레이션 도면', { x:MX, y:3.4, w:CW, h:0.5, fontFace:PPT_FONT, fontSize:16, bold:true, color:PPT.MUTED, align:'center' });
-    s9.addText('「태양광 부지 진단 시스템」 04번 화면(위성사진에 모듈 배치를 겹친 화면)을 캡처하여\n이 영역에 붙여넣으세요.', { x:MX, y:3.95, w:CW, h:0.6, fontFace:PPT_FONT, fontSize:12, color:PPT.MUTED, align:'center' });
+    var s5 = pres.addSlide(); slides.push(s5);
+    pptxTitle(s5, null, '붙임');
+    s5.addShape('rect', { x:MX, y:1.15, w:CW, h:6.5, fill:{color:PPT.SURFACE2}, line:{color:PPT.LINE, width:1.5, dashType:'dash'} });
+    s5.addText('위성사진 + 모듈 배치 시뮬레이션 도면', { x:MX, y:4.0, w:CW, h:0.5, fontFace:PPT_FONT, fontSize:14, bold:true, color:PPT.MUTED, align:'center' });
+    s5.addText('「태양광 부지 진단 시스템」 04번 화면(위성사진 위에 모듈 배치가\n겹쳐 표시된 화면)을 캡처하여 이 영역에 붙여넣으세요.', { x:MX, y:4.55, w:CW, h:0.6, fontFace:PPT_FONT, fontSize:11, color:PPT.MUTED, align:'center' });
 
     var total = slides.length;
-    slides.forEach(function(sl, i){ addSlideNumber(sl, i+1, total); });
+    slides.forEach(function(sl, i){ addPageNumber(sl, i+1, total); });
 
     var firstAddr = (state.parcels[0].addressText||'proposal').replace(/\s+/g,'_');
     await pres.writeFile({ fileName: '태양광_사업제안서_' + firstAddr + '.pptx' });
