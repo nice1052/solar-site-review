@@ -398,16 +398,30 @@ a{color:var(--accent);}
 
         <div class="card">
           <h3><span class="n">06</span> 선로(계통) 여유용량 확인</h3>
-          <p class="desc">한전ON "배전선로 여유용량" 조회는 <b>로그인 없이</b> 주소(시/도·시·구/군·동/면·리·상세번지)를 순서대로 선택하면 지번 단위로 배전선로(D/L) 여유용량을 바로 확인할 수 있습니다. 아래 버튼으로 열어 부지 주소를 선택해 확인한 뒤, 결과를 아래에 입력하세요.</p>
-          <div class="copytext" id="addrCopyText">-</div>
-          <div class="kepco">
-            <button class="btn" id="copyAddrBtn" type="button">주소 복사</button>
-            <a class="btn primary" id="kepcoLink" href="https://online.kepco.co.kr/EWM092D00" target="_blank" rel="noopener">한전ON 배전선로 여유용량 조회 열기 (로그인 불필요) ↗</a>
+          <p class="desc">한전ON "배전선로 여유용량"을 <b>로그인 없이</b>, 이 화면 안에서 직접 조회합니다. 주소를 선택하면 변전소·주변압기·배전선로의 접속기준용량과 여유용량이 아래에 바로 표시됩니다. (구글 시트 연동에 쓴 Apps Script를 중계 서버로 재사용 — 최초 1회 설정 필요, 안내 보기 참고)</p>
+          <div class="settings" id="kepcoAddrGrid" style="grid-template-columns:repeat(6,1fr);margin-top:10px;">
+            <div class="field"><label>시/도</label><select id="kepcoDo"><option value="">선택</option></select></div>
+            <div class="field"><label>시</label><select id="kepcoSi" disabled><option value="">선택</option></select></div>
+            <div class="field"><label>구/군</label><select id="kepcoGu" disabled><option value="">선택</option></select></div>
+            <div class="field"><label>동/면</label><select id="kepcoDong" disabled><option value="">선택</option></select></div>
+            <div class="field"><label>리</label><select id="kepcoLi" disabled><option value="">선택(없으면 비움)</option></select></div>
+            <div class="field"><label>상세번지</label><select id="kepcoJibun" disabled><option value="">선택</option></select></div>
           </div>
-          <div class="note">경로: 한전ON → 배전선로 여유용량 → "주소로 검색" 탭 → 시/도·시·구/군·동/면·리·상세번지 순서대로 선택. 조회 결과는 참고자료이며, 실제 계통접속 가능 여부는 한전 담당 지사 확인이 최종 기준입니다.</div>
+          <div class="kepco">
+            <button class="btn" id="kepcoAutoFillBtn" type="button">부지 주소로 자동 채우기</button>
+            <button class="btn primary" id="kepcoQueryBtn" type="button" disabled>여유용량 조회</button>
+          </div>
+          <div class="note" id="kepcoQueryStatus"></div>
+          <div id="kepcoResultBox" class="hidden" style="margin-top:8px;"></div>
+          <div class="copytext hidden" id="addrCopyText">-</div>
+          <div class="kepco">
+            <button class="btn hidden" id="copyAddrBtn" type="button">주소 복사</button>
+            <a class="btn" id="kepcoLink" href="https://online.kepco.co.kr/EWM092D00" target="_blank" rel="noopener">자동조회가 안 되면 — 한전ON 직접 열기 ↗</a>
+          </div>
+          <div class="note">자동 조회는 한전ON의 비공식(문서화되지 않은) 내부 API를 이용하므로, 한전 측 개편 시 예고 없이 동작하지 않을 수 있습니다 — 이 경우 위 링크로 직접 확인하세요. 조회 결과는 참고자료이며, 실제 계통접속 가능 여부는 한전 담당 지사 확인이 최종 기준입니다. 변전소·주변압기·배전선로 모두 여유용량이 0보다 커야 접속이 가능합니다.</div>
           <div class="settings" style="grid-template-columns:repeat(2,1fr);margin-top:14px;">
             <div class="field">
-              <label>계통연계 가능 여부(한전 확인 결과)</label>
+              <label>계통연계 가능 여부(자동조회 또는 한전 확인 결과)</label>
               <select id="gridAvailable">
                 <option value="unknown" selected>확인 전</option>
                 <option value="yes">가능</option>
@@ -1645,6 +1659,78 @@ a{color:var(--accent);}
     return list[0] + ' 외 ' + (list.length - 1) + '곳';
   }
 
+  // 필지·용도지역·농지 항목이 많으면 표 하나가 페이지 아래로 벗어날 수 있으므로,
+  // 남는 공간을 계산해 자동으로 이어지는 페이지를 추가하는 페이지네이션 헬퍼.
+  function newContinuationSlide(pres, slides, titleNo, titleText){
+    var s = pres.addSlide(); slides.push(s);
+    pptxTitle(s, titleNo, titleText + ' (계속)');
+    return s;
+  }
+  function makePager(pres, slides, titleNo, titleText, slide, y){
+    return {
+      slide: slide, y: y,
+      ensure: function(neededH){
+        if(this.y + neededH > PAGE_H - 0.55){
+          this.slide = newContinuationSlide(pres, slides, titleNo, titleText);
+          this.y = 1.15;
+        }
+      },
+      sub: function(text){
+        this.ensure(0.45);
+        pptxSub(this.slide, text, this.y);
+        this.y += 0.45;
+      },
+      para: function(text, opts){
+        opts = opts || {};
+        var h = opts.h || 0.45;
+        this.ensure(h);
+        pptxPara(this.slide, text, this.y, opts);
+        this.y += h + (opts.gapAfter!==undefined?opts.gapAfter:0.1);
+      },
+      note: function(text, h){
+        if(!text) return;
+        h = h || 0.4;
+        this.ensure(h);
+        pptxNote(this.slide, text, this.y, h);
+        this.y += h;
+      },
+      badge: function(text, color, h){
+        h = h || 0.5;
+        this.ensure(h + 0.25);
+        pptxBadge(this.slide, text, color, this.y, h);
+        this.y += h + 0.25;
+      },
+      // rows[0..headerRows-1]은 표 헤더 — 남는 공간에 다 못 들어가면 헤더를 반복해 다음 페이지로 이어간다.
+      table: function(rows, opts){
+        if(!rows || !rows.length) return;
+        opts = opts || {};
+        var headerN = opts.headerRows || 1;
+        var header = rows.slice(0, headerN);
+        var body = rows.slice(headerN);
+        var rowH = opts.rowH || 0.28;
+        var gapAfter = opts.gapAfter!==undefined ? opts.gapAfter : 0.4;
+        if(!body.length){
+          this.ensure(rowH*(headerN+1));
+          var h0 = pptxTable(this.slide, header, MX, this.y, CW, Object.assign({}, opts, {headerRows:headerN}));
+          this.y += h0 + gapAfter;
+          return;
+        }
+        var i = 0;
+        while(i < body.length){
+          this.ensure(rowH*(headerN+1));
+          var avail = PAGE_H - 0.55 - this.y;
+          var maxRows = Math.max(1, Math.floor(avail/rowH) - headerN);
+          var chunk = body.slice(i, i+maxRows);
+          var chunkRows = header.concat(chunk);
+          var h = pptxTable(this.slide, chunkRows, MX, this.y, CW, Object.assign({}, opts, {headerRows:headerN}));
+          this.y += h;
+          i += chunk.length;
+        }
+        this.y += gapAfter;
+      }
+    };
+  }
+
   // 간단하고 짧은 제안서: 표지 + 3개 본문 페이지(마지막 페이지 하단에 붙임 첨부란 포함), A4 세로.
   // 각 페이지는 남는 공간이 생기지 않도록 내용을 채우고, 상세한 법령/절차 설명은 넣지 않는다.
   async function buildProposalPptx(){
@@ -1714,24 +1800,24 @@ a{color:var(--accent);}
     pptxSub(s1, '2. 결론 및 제안', y1); y1 += 0.5;
     pptxPara(s1, '본 제안서는 ' + (addrSummary(addrList)||'【 부지 】') + '에 대한 태양광 발전사업의 타당성을 검토한 결과를 종합한 것이다. 위 인허가 검토 결과를 바탕으로 사업 추진이 【 타당함 / 조건부 타당함 】 것으로 판단되며, 세부 실행계획에 대한 협의를 제안한다.', y1, {h:0.85, fontSize:13});
 
-    // Ⅱ. 부지현황
+    // Ⅱ. 부지현황 — 필지·용도지역·농지 항목이 많으면 pager가 자동으로 다음 페이지로 이어간다.
     var s2 = pres.addSlide(); slides.push(s2);
     pptxTitle(s2, 'Ⅱ', '부지현황 분석');
-    var y2 = 1.15;
-    pptxSub(s2, '1. 토지 현황', y2); y2 += 0.45;
+    var pager2 = makePager(pres, slides, 'Ⅱ', '부지현황 분석', s2, 1.15);
+    pager2.sub('1. 토지 현황');
     var landRows = domTableRows(document.querySelector('#landInfoBody').closest('table'));
-    y2 += pptxTable(s2, landRows, MX, y2, CW, { rowH:0.42, fontSize:11 }) + 0.4;
-    pptxSub(s2, '2. 용도지역 · 지구 현황', y2); y2 += 0.45;
+    pager2.table(landRows, { rowH:0.42, fontSize:11 });
+    pager2.sub('2. 용도지역 · 지구 현황');
     var zoneRows = domTableRows(document.querySelector('#zoneTableBody').closest('table'));
     if(zoneRows.length > 1){
-      y2 += pptxTable(s2, zoneRows, MX, y2, CW, { rowH:0.4, fontSize:10, colW:[CW*0.24,CW*0.34,CW*0.2,CW*0.22] }) + 0.4;
+      pager2.table(zoneRows, { rowH:0.4, fontSize:10, colW:[CW*0.24,CW*0.34,CW*0.2,CW*0.22] });
     } else {
-      pptxPara(s2, '등록된 용도지역/지구 정보가 없습니다.', y2, {fontSize:11.5}); y2 += 0.5;
+      pager2.para('등록된 용도지역/지구 정보가 없습니다.', {fontSize:11.5, h:0.4});
     }
     var farmRows = domTableRows(document.getElementById('farmlandTable'));
     if(farmRows.length > 1){
-      pptxSub(s2, '3. 농지전용부담금 (참고)', y2); y2 += 0.45;
-      y2 += pptxTable(s2, farmRows, MX, y2, CW, { rowH:0.4, fontSize:9.5 }) + 0.3;
+      pager2.sub('3. 농지전용부담금 (참고)');
+      pager2.table(farmRows, { rowH:0.4, fontSize:9.5, gapAfter:0.3 });
     }
 
     // Ⅲ. 설비 및 경제성
@@ -1875,6 +1961,272 @@ a{color:var(--accent);}
       statusEl.textContent = '저장에 실패했습니다. 네트워크를 확인해주세요.';
       setTimeout(function(){ statusEl.textContent=''; statusEl.style.color=''; }, 4000);
     });
+  });
+
+  // ---------- 06: 한전 계통여유용량 자동 조회 (Apps Script 중계 + JSONP, 로그인 불필요) ----------
+  // 브라우저에서 한전ON API를 직접 호출하면 CORS 사전요청(preflight)이 한전 서버에서 405로
+  // 막혀 있어 정상적으로 동작하지 않습니다(직접 확인함). 그래서 위 09번에서 쓰는 Apps Script
+  // 웹앱을 중계 서버로 재사용합니다 — Apps Script가 서버에서 한전 API를 대신 호출해 결과만
+  // 돌려줍니다(서버-서버 통신은 CORS 제약이 없음). Apps Script 프로젝트에 doGet 함수를
+  // 추가하고 "새 버전으로 배포"해야 동작합니다(대화창에서 전달한 코드 참고).
+  // TEAM_LOG_WEBAPP_URL이 비어 있으면 이 기능은 자동으로 "한전ON 직접 열기" 링크만 안내합니다.
+  var KEPCO_PROXY_URL = TEAM_LOG_WEBAPP_URL;
+  var KEPCO_SIDO_LIST = ['강원특별자치도','경기도','경상남도','경상북도','광주광역시','대구광역시','대전광역시','부산광역시','서울특별시','세종특별자치시','울산광역시','인천광역시','전라남도','전북특별자치도','제주특별자치도','충청남도','충청북도'];
+
+  function kepcoGbn(gbn, addr){
+    if(!KEPCO_PROXY_URL) return Promise.reject(new Error('proxy not configured'));
+    var q = ['action=gbn','gbn='+gbn,
+      'do='+encodeURIComponent(addr.do||''), 'si='+encodeURIComponent(addr.si||''),
+      'gu='+encodeURIComponent(addr.gu||''), 'lidong='+encodeURIComponent(addr.lidong||''),
+      'li='+encodeURIComponent(addr.li||''), 'jibun='+encodeURIComponent(addr.jibun||'')].join('&');
+    return jsonp(KEPCO_PROXY_URL + '?' + q, 12000).then(function(res){
+      if(res && res.error) throw new Error(res.error);
+      return res || [];
+    });
+  }
+  function kepcoMesh(addr){
+    if(!KEPCO_PROXY_URL) return Promise.reject(new Error('proxy not configured'));
+    var q = ['action=mesh',
+      'do='+encodeURIComponent(addr.do||''), 'si='+encodeURIComponent(addr.si||''),
+      'gu='+encodeURIComponent(addr.gu||''), 'lidong='+encodeURIComponent(addr.lidong||''),
+      'li='+encodeURIComponent(addr.li||''), 'jibun='+encodeURIComponent(addr.jibun||'')].join('&');
+    return jsonp(KEPCO_PROXY_URL + '?' + q, 12000).then(function(res){
+      if(res && res.error) throw new Error(res.error);
+      return res || [];
+    });
+  }
+  function kepcoFillSelect(id, values, placeholder){
+    var el = document.getElementById(id);
+    var html = '<option value="">'+escapeHtml(placeholder||'선택')+'</option>';
+    (values||[]).forEach(function(v){ html += '<option value="'+escapeHtml(v)+'">'+escapeHtml(v)+'</option>'; });
+    el.innerHTML = html;
+    el.value = '';
+  }
+  function kepcoResetDownstream(fromLevel){
+    var order = ['kepcoSi','kepcoGu','kepcoDong','kepcoLi','kepcoJibun'];
+    var idx = order.indexOf(fromLevel);
+    order.forEach(function(id, i){
+      var el = document.getElementById(id);
+      if(i >= idx){ el.innerHTML = '<option value="">선택</option>'; el.disabled = true; }
+    });
+    document.getElementById('kepcoQueryBtn').disabled = true;
+    document.getElementById('kepcoResultBox').classList.add('hidden');
+  }
+  function kepcoSetStatus(text, isError){
+    var el = document.getElementById('kepcoQueryStatus');
+    el.textContent = text || '';
+    el.style.color = isError ? 'var(--bad-ink)' : '';
+  }
+  function kepcoCurrentAddr(){
+    return {
+      do: document.getElementById('kepcoDo').value, si: document.getElementById('kepcoSi').value,
+      gu: document.getElementById('kepcoGu').value, lidong: document.getElementById('kepcoDong').value,
+      li: document.getElementById('kepcoLi').value, jibun: document.getElementById('kepcoJibun').value
+    };
+  }
+
+  kepcoFillSelect('kepcoDo', KEPCO_SIDO_LIST, '시/도 선택');
+
+  document.getElementById('kepcoDo').addEventListener('change', function(){
+    kepcoResetDownstream('kepcoSi');
+    var v = this.value;
+    if(!v) return;
+    kepcoSetStatus('시 목록 불러오는 중…');
+    kepcoGbn(0, {do:v}).then(function(list){
+      kepcoFillSelect('kepcoSi', list, '시 선택');
+      document.getElementById('kepcoSi').disabled = false;
+      kepcoSetStatus('');
+    }).catch(function(){ kepcoSetStatus('시 목록을 불러오지 못했습니다 — 아래 링크로 직접 확인하세요.', true); });
+  });
+  document.getElementById('kepcoSi').addEventListener('change', function(){
+    kepcoResetDownstream('kepcoGu');
+    var v = this.value;
+    if(!v) return;
+    kepcoSetStatus('구/군 목록 불러오는 중…');
+    kepcoGbn(1, {do:document.getElementById('kepcoDo').value, si:v}).then(function(list){
+      kepcoFillSelect('kepcoGu', list, '구/군 선택');
+      document.getElementById('kepcoGu').disabled = false;
+      kepcoSetStatus('');
+    }).catch(function(){ kepcoSetStatus('구/군 목록을 불러오지 못했습니다 — 아래 링크로 직접 확인하세요.', true); });
+  });
+  document.getElementById('kepcoGu').addEventListener('change', function(){
+    kepcoResetDownstream('kepcoDong');
+    var v = this.value;
+    if(!v) return;
+    kepcoSetStatus('동/면 목록 불러오는 중…');
+    kepcoGbn(2, {do:document.getElementById('kepcoDo').value, si:document.getElementById('kepcoSi').value, gu:v}).then(function(list){
+      kepcoFillSelect('kepcoDong', list, '동/면 선택');
+      document.getElementById('kepcoDong').disabled = false;
+      kepcoSetStatus('');
+    }).catch(function(){ kepcoSetStatus('동/면 목록을 불러오지 못했습니다 — 아래 링크로 직접 확인하세요.', true); });
+  });
+  document.getElementById('kepcoDong').addEventListener('change', function(){
+    kepcoResetDownstream('kepcoLi');
+    var v = this.value;
+    if(!v) return;
+    kepcoSetStatus('리 목록 불러오는 중…');
+    var base = {do:document.getElementById('kepcoDo').value, si:document.getElementById('kepcoSi').value, gu:document.getElementById('kepcoGu').value, lidong:v};
+    kepcoGbn(3, base).then(function(list){
+      if(list.length){
+        kepcoFillSelect('kepcoLi', list, '리 선택');
+        document.getElementById('kepcoLi').disabled = false;
+        kepcoSetStatus('');
+      } else {
+        document.getElementById('kepcoLi').disabled = true;
+        kepcoSetStatus('지번 목록 불러오는 중…');
+        return kepcoGbn(4, base).then(function(jList){
+          kepcoFillSelect('kepcoJibun', jList, '상세번지 선택');
+          document.getElementById('kepcoJibun').disabled = false;
+          kepcoSetStatus('');
+        });
+      }
+    }).catch(function(){ kepcoSetStatus('리/지번 목록을 불러오지 못했습니다 — 아래 링크로 직접 확인하세요.', true); });
+  });
+  document.getElementById('kepcoLi').addEventListener('change', function(){
+    kepcoResetDownstream('kepcoJibun');
+    var v = this.value;
+    if(!v) return;
+    kepcoSetStatus('상세번지 목록 불러오는 중…');
+    var base = {do:document.getElementById('kepcoDo').value, si:document.getElementById('kepcoSi').value, gu:document.getElementById('kepcoGu').value, lidong:document.getElementById('kepcoDong').value, li:v};
+    kepcoGbn(4, base).then(function(list){
+      kepcoFillSelect('kepcoJibun', list, '상세번지 선택');
+      document.getElementById('kepcoJibun').disabled = false;
+      kepcoSetStatus('');
+    }).catch(function(){ kepcoSetStatus('상세번지 목록을 불러오지 못했습니다 — 아래 링크로 직접 확인하세요.', true); });
+  });
+  document.getElementById('kepcoJibun').addEventListener('change', function(){
+    document.getElementById('kepcoQueryBtn').disabled = !this.value;
+    document.getElementById('kepcoResultBox').classList.add('hidden');
+  });
+
+  document.getElementById('kepcoAutoFillBtn').addEventListener('click', function(){
+    if(!KEPCO_PROXY_URL){
+      kepcoSetStatus('아직 자동조회 연동이 설정되지 않았습니다 — 관리자에게 문의하거나 아래 링크로 직접 확인하세요.', true);
+      return;
+    }
+    var loaded = state.parcels.filter(function(p){ return !p.loading && !p.error; });
+    var p = loaded[0];
+    var ld = p && p.ladfrl;
+    if(!ld || !ld.ldCodeNm){
+      kepcoSetStatus('먼저 필지를 추가해 진단을 실행하세요.', true);
+      return;
+    }
+    var toks = ld.ldCodeNm.trim().split(/\s+/);
+    var jibunGuess = jibunOf(p);
+    var doNm = toks[0];
+    if(KEPCO_SIDO_LIST.indexOf(doNm) < 0){
+      kepcoSetStatus('시/도명을 자동으로 인식하지 못했습니다 — 직접 선택해주세요.', true);
+      return;
+    }
+    kepcoSetStatus('자동 채우기 중…');
+    document.getElementById('kepcoDo').value = doNm;
+    kepcoResetDownstream('kepcoSi');
+    kepcoGbn(0, {do:doNm}).then(function(siList){
+      kepcoFillSelect('kepcoSi', siList, '시 선택');
+      document.getElementById('kepcoSi').disabled = false;
+      var siGuess = toks[1] || '';
+      var siPick = siList.indexOf(siGuess) >= 0 ? siGuess : '-기타지역';
+      document.getElementById('kepcoSi').value = siPick;
+      return kepcoGbn(1, {do:doNm, si:siPick}).then(function(guList){
+        kepcoFillSelect('kepcoGu', guList, '구/군 선택');
+        document.getElementById('kepcoGu').disabled = false;
+        var guGuess, nextIdx;
+        if(siPick === '-기타지역'){ guGuess = siGuess; nextIdx = 2; }
+        else if(toks[2] && guList.indexOf(toks[2]) >= 0){ guGuess = toks[2]; nextIdx = 3; }
+        else { guGuess = '-기타지역'; nextIdx = 2; }
+        if(guList.indexOf(guGuess) < 0){
+          kepcoSetStatus('구/군까지 자동 인식했지만 목록에 없습니다 — 나머지를 직접 선택해주세요.', true);
+          return;
+        }
+        document.getElementById('kepcoGu').value = guGuess;
+        return kepcoGbn(2, {do:doNm, si:siPick, gu:guGuess}).then(function(dongList){
+          kepcoFillSelect('kepcoDong', dongList, '동/면 선택');
+          document.getElementById('kepcoDong').disabled = false;
+          var dongGuess = toks[nextIdx];
+          if(!dongGuess || dongList.indexOf(dongGuess) < 0){
+            kepcoSetStatus('동/면까지는 자동 인식하지 못했습니다 — 나머지를 직접 선택해주세요.');
+            return;
+          }
+          document.getElementById('kepcoDong').value = dongGuess;
+          var base2 = {do:doNm, si:siPick, gu:guGuess, lidong:dongGuess};
+          return kepcoGbn(3, base2).then(function(liList){
+            function finishJibun(jList, usedLi){
+              kepcoFillSelect('kepcoJibun', jList, '상세번지 선택');
+              document.getElementById('kepcoJibun').disabled = false;
+              if(jList.indexOf(jibunGuess) >= 0){
+                document.getElementById('kepcoJibun').value = jibunGuess;
+                document.getElementById('kepcoQueryBtn').disabled = false;
+                kepcoSetStatus('자동 채우기 완료 — 조회 버튼을 눌러주세요.');
+              } else {
+                kepcoSetStatus('상세번지("'+jibunGuess+'")를 목록에서 찾지 못했습니다 — 가장 가까운 지번을 직접 선택해주세요.');
+              }
+            }
+            if(liList.length){
+              kepcoFillSelect('kepcoLi', liList, '리 선택');
+              document.getElementById('kepcoLi').disabled = false;
+              var liGuess = toks[nextIdx+1];
+              if(!liGuess || liList.indexOf(liGuess) < 0){
+                kepcoSetStatus('리까지는 자동 인식하지 못했습니다 — 리와 상세번지를 직접 선택해주세요.');
+                return;
+              }
+              document.getElementById('kepcoLi').value = liGuess;
+              return kepcoGbn(4, Object.assign({}, base2, {li:liGuess})).then(function(jList){ finishJibun(jList, liGuess); });
+            } else {
+              document.getElementById('kepcoLi').disabled = true;
+              return kepcoGbn(4, base2).then(function(jList){ finishJibun(jList, ''); });
+            }
+          });
+        });
+      });
+    }).catch(function(){ kepcoSetStatus('자동 채우기 중 오류가 발생했습니다 — 아래 링크로 직접 확인하세요.', true); });
+  });
+
+  function kepcoMarginRow(label, capa, pwr, gcapa){
+    var capaN = +capa||0, pwrN = +pwr||0, gN = +gcapa||0;
+    var m1 = Math.max(0, capaN - pwrN), m2 = Math.max(0, capaN - gN);
+    var margin = Math.min(m1, m2);
+    var ok = m1 > 0 && m2 > 0;
+    return '<tr><td>'+escapeHtml(label)+'</td><td class="mono">'+fmt(capaN,0)+'</td><td class="mono">'+fmt(pwrN,0)+'</td>'+
+      '<td class="mono">'+fmt(gN,0)+'</td><td class="mono" style="color:'+(ok?'var(--ok-ink)':'var(--bad-ink)')+';font-weight:600;">'+fmt(margin,0)+'</td></tr>';
+  }
+  function kepcoRenderResult(list){
+    var box = document.getElementById('kepcoResultBox');
+    if(!list || !list.length){
+      box.innerHTML = '<div class="note">해당 지번에 대한 조회 결과가 없습니다 — 인접 지번을 선택했는지 확인하거나 아래 링크로 직접 확인하세요.</div>';
+      box.classList.remove('hidden');
+      return;
+    }
+    var html = list.map(function(r){
+      return '<div class="note" style="margin-bottom:4px;color:var(--ink);"><b>변전소</b> '+escapeHtml(r.SUBST_NM||'-')+
+        ' · <b>주변압기</b> #'+escapeHtml(r.MTR_NO||'-')+' · <b>배전선로</b> '+escapeHtml(r.DL_NM||'-')+'</div>'+
+        '<div class="overflow"><table class="zonelist"><thead><tr><th>구분</th><th>접속기준용량(kW)</th><th>접수기준 접속용량(kW)</th><th>접속계획 반영 접속용량(kW)</th><th>여유용량(kW)</th></tr></thead><tbody>'+
+        kepcoMarginRow('변전소', r.SUBST_CAPA, r.SUBST_PWR, r.G_SUBST_CAPA) +
+        kepcoMarginRow('주변압기', r.MTR_CAPA, r.MTR_PWR, r.G_MTR_CAPA) +
+        kepcoMarginRow('배전선로', r.DL_CAPA, r.DL_PWR, r.G_DL_CAPA) +
+        '</tbody></table></div>';
+    }).join('<hr style="margin:12px 0;border:none;border-top:1px solid var(--line);">');
+    box.innerHTML = html;
+    box.classList.remove('hidden');
+
+    var r0 = list[0];
+    var margins = ['SUBST','MTR','DL'].map(function(k){
+      return Math.min(Math.max(0,(+r0[k+'_CAPA']||0)-(+r0[k+'_PWR']||0)), Math.max(0,(+r0[k+'_CAPA']||0)-(+r0['G_'+k+'_CAPA']||0)));
+    });
+    var minMargin = Math.min.apply(null, margins);
+    document.getElementById('gridCapacityKw').value = Math.round(minMargin);
+    document.getElementById('gridAvailable').value = minMargin > 0 ? 'yes' : 'no';
+    updateGridNote();
+  }
+
+  document.getElementById('kepcoQueryBtn').addEventListener('click', function(){
+    var addr = kepcoCurrentAddr();
+    if(!addr.jibun){ kepcoSetStatus('상세번지까지 선택해주세요.', true); return; }
+    kepcoSetStatus('조회 중…');
+    document.getElementById('kepcoResultBox').classList.add('hidden');
+    kepcoMesh(addr).then(function(list){
+      kepcoRenderResult(list);
+      kepcoSetStatus('');
+    }).catch(function(){ kepcoSetStatus('조회에 실패했습니다 — 아래 링크로 직접 확인하세요.', true); });
   });
 
 })();
