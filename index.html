@@ -1497,20 +1497,20 @@ a{color:var(--accent);}
     });
   }
   function pptxSub(slide, text, y){
-    slide.addText(text, { x:MX, y:y, w:CW, h:0.32, fontFace:PPT_FONT, fontSize:12.5, bold:true, color:PPT.ACCENT, align:'left' });
+    slide.addText(text, { x:MX, y:y, w:CW, h:0.36, fontFace:PPT_FONT, fontSize:14, bold:true, color:PPT.ACCENT, align:'left' });
   }
   function pptxPara(slide, text, y, opts){
     opts = opts || {};
-    slide.addText(text, Object.assign({ x:MX, y:y, w:CW, h:opts.h||0.4, fontFace:PPT_FONT, fontSize:opts.fontSize||11,
-      color:opts.color||PPT.DARK, align:'left', valign:'top' }, opts.extra||{}));
+    slide.addText(text, Object.assign({ x:MX, y:y, w:CW, h:opts.h||0.45, fontFace:PPT_FONT, fontSize:opts.fontSize||12,
+      color:opts.color||PPT.DARK, align:'left', valign:'top', lineSpacingMultiple:1.25 }, opts.extra||{}));
   }
   function pptxNote(slide, text, y, h){
     if(!text) return;
-    slide.addText(text, { x:MX, y:y, w:CW, h:h||0.4, fontFace:PPT_FONT, fontSize:8.5, italic:true, color:PPT.MUTED, align:'left', valign:'top' });
+    slide.addText(text, { x:MX, y:y, w:CW, h:h||0.4, fontFace:PPT_FONT, fontSize:9.5, italic:true, color:PPT.MUTED, align:'left', valign:'top' });
   }
   function pptxBadge(slide, text, color, y, h){
     slide.addText(text, {
-      x:MX, y:y, w:CW, h:h||0.42, fontFace:PPT_FONT, fontSize:11.5, bold:true, color:PPT.WHITE, align:'left', valign:'middle',
+      x:MX, y:y, w:CW, h:h||0.5, fontFace:PPT_FONT, fontSize:13, bold:true, color:PPT.WHITE, align:'left', valign:'middle',
       fill:{ color:color }, margin:[4,10,4,10]
     });
   }
@@ -1551,8 +1551,19 @@ a{color:var(--accent);}
   function addPageNumber(slide, i, total){
     slide.addText(i+' / '+total, { x:PAGE_W-1.0, y:PAGE_H-0.45, w:0.7, h:0.3, fontFace:PPT_FONT, fontSize:8.5, color:PPT.MUTED, align:'right' });
   }
+  // 페이지 하단에 남는 공간을 점선 박스로 채워, 어떤 입력값이 와도 페이지 끝까지 내용이
+  // 이어지도록 한다(메모란 또는 사진 첨부란으로 사용). 남는 공간이 너무 작으면 생략한다.
+  function fillRemainder(slide, y, label){
+    var remaining = PAGE_H - 0.55 - y;
+    if(remaining < 0.6) return;
+    slide.addShape('rect', { x:MX, y:y, w:CW, h:remaining, fill:{color:PPT.SURFACE2}, line:{color:PPT.LINE, width:1.5, dashType:'dash'} });
+    if(remaining >= 1.0){
+      slide.addText(label, { x:MX, y:y+remaining/2-0.2, w:CW, h:0.4, fontFace:PPT_FONT, fontSize:11.5, color:PPT.MUTED, align:'center' });
+    }
+  }
 
-  // 간단하고 짧은 제안서: 표지 + 4개 본문 페이지 + 붙임, A4 세로.
+  // 간단하고 짧은 제안서: 표지 + 3개 본문 페이지(마지막 페이지 하단에 붙임 첨부란 포함), A4 세로.
+  // 각 페이지는 남는 공간이 생기지 않도록 내용을 채우고, 상세한 법령/절차 설명은 넣지 않는다.
   async function buildProposalPptx(){
     var addrList = state.parcels.map(function(p){ return p.addressText; });
     var today = new Date();
@@ -1572,10 +1583,10 @@ a{color:var(--accent);}
     s0.addText('제안기관: ㈜클레스(KLES)   ·   생성일: ' + dateStr + '   ·   「태양광 부지 진단 시스템」에서 자동 생성된 초안',
       { x:0.6, y:6.1, w:PAGE_W-1.2, h:0.4, fontFace:PPT_FONT, fontSize:9.5, color:'B9C2BC', align:'center' });
 
-    // Ⅰ. 사업 개요 + 인허가 요약
+    // Ⅰ. 사업 개요 + 인허가 요약 + 결론 (내용을 크게 배치해 페이지 하단까지 채운다)
     var s1 = pres.addSlide(); slides.push(s1);
     pptxTitle(s1, 'Ⅰ', '사업 개요');
-    var y1 = 1.05;
+    var y1 = 1.15;
     var h1 = pptxTable(s1, [
       ['구분','내용'],
       ['사업위치', addrList.join(', ') || '【 부지 주소 】'],
@@ -1583,17 +1594,17 @@ a{color:var(--accent);}
       ['설비용량', txt('resCapacity') || '【 】'],
       ['사업방식', '【 한전 계통판매 / PPA / 자가소비 중 선택 】'],
       ['사업기간', '착공 【 YYYY.MM 】 ~ 준공 【 YYYY.MM 】'],
-    ], MX, y1, CW, { colW:[CW*0.28, CW*0.72], rowH:0.36, fontSize:10.5 });
-    y1 += h1 + 0.3;
-    pptxSub(s1, '인허가 요약', y1); y1 += 0.4;
+    ], MX, y1, CW, { colW:[CW*0.28, CW*0.72], rowH:0.52, fontSize:12.5 });
+    y1 += h1 + 0.4;
+    pptxSub(s1, '인허가 요약', y1); y1 += 0.5;
     var zv = zoneInstallVerdict(state.parcels);
     var zvColor = zv.level === 'block' ? PPT.BAD : (zv.level === 'warn' ? PPT.WARN : PPT.OK);
-    pptxBadge(s1, '용도지역 — ' + zv.text, zvColor, y1); y1 += 0.55;
+    pptxBadge(s1, '용도지역 — ' + zv.text, zvColor, y1); y1 += 0.75;
     var setbackSel = document.getElementById('setbackVerdict').value;
     var setbackText = setbackSel === 'ok' ? '✅ 이격거리 — 기준 충족(설치 가능)'
       : setbackSel === 'fail' ? '🚫 이격거리 — 기준 미충족(설치 불가능)' : '❔ 이격거리 — 확인 전(관할 조례 확인 필요)';
     var setbackColor = setbackSel === 'ok' ? PPT.OK : (setbackSel === 'fail' ? PPT.BAD : PPT.MUTED);
-    pptxBadge(s1, setbackText, setbackColor, y1); y1 += 0.55;
+    pptxBadge(s1, setbackText, setbackColor, y1); y1 += 0.75;
     var gridAvail = document.getElementById('gridAvailable').value;
     var gridCapVal = val('gridCapacityKw');
     var gridSuffix = (function(){
@@ -1605,67 +1616,67 @@ a{color:var(--accent);}
     var gridText = gridAvail === 'no' ? '🚫 계통연계 — 불가능'
       : gridAvail === 'yes' ? ('✅ 계통연계 — 가능' + gridSuffix) : '❔ 계통연계 — 확인 전';
     var gridColor = gridAvail === 'no' ? PPT.BAD : (gridAvail === 'yes' ? PPT.OK : PPT.MUTED);
-    pptxBadge(s1, gridText, gridColor, y1); y1 += 0.55;
-    pptxNote(s1, '여유용량 ' + (gridCapVal ? (gridCapVal+'kW') : '미입력') + ' · 조회: 한전 사이버지점 → 자주찾는서비스 → 배전선로 여유용량 조회', y1, 0.3);
+    pptxBadge(s1, gridText, gridColor, y1); y1 += 0.75;
+    if(gridCapVal) { pptxNote(s1, '여유용량 ' + gridCapVal + 'kW', y1, 0.3); y1 += 0.4; }
+
+    y1 += 0.15;
+    pptxSub(s1, '결론 및 제안', y1); y1 += 0.5;
+    pptxPara(s1, '본 제안서는 ' + (addrList.join(', ')||'【 부지 】') + '에 대한 태양광 발전사업의 타당성을 검토한 결과를 종합한 것이다. 위 인허가 검토 결과를 바탕으로 사업 추진이 【 타당함 / 조건부 타당함 】 것으로 판단되며, 세부 실행계획에 대한 협의를 제안한다.', y1, {h:0.85, fontSize:13});
+    y1 += 0.85 + 0.3;
+    fillRemainder(s1, y1, '메모');
 
     // Ⅱ. 부지현황
     var s2 = pres.addSlide(); slides.push(s2);
     pptxTitle(s2, 'Ⅱ', '부지현황 분석');
-    var y2 = 1.05;
-    pptxSub(s2, '토지 현황', y2); y2 += 0.35;
+    var y2 = 1.15;
+    pptxSub(s2, '토지 현황', y2); y2 += 0.45;
     var landRows = domTableRows(document.querySelector('#landInfoBody').closest('table'));
-    y2 += pptxTable(s2, landRows, MX, y2, CW, { rowH:0.3, fontSize:9.5 }) + 0.3;
-    pptxSub(s2, '용도지역 · 지구 현황', y2); y2 += 0.35;
+    y2 += pptxTable(s2, landRows, MX, y2, CW, { rowH:0.42, fontSize:11 }) + 0.4;
+    pptxSub(s2, '용도지역 · 지구 현황', y2); y2 += 0.45;
     var zoneRows = domTableRows(document.querySelector('#zoneTableBody').closest('table'));
     if(zoneRows.length > 1){
-      y2 += pptxTable(s2, zoneRows, MX, y2, CW, { rowH:0.3, fontSize:9, colW:[CW*0.24,CW*0.34,CW*0.2,CW*0.22] }) + 0.3;
+      y2 += pptxTable(s2, zoneRows, MX, y2, CW, { rowH:0.4, fontSize:10, colW:[CW*0.24,CW*0.34,CW*0.2,CW*0.22] }) + 0.4;
     } else {
-      pptxPara(s2, '등록된 용도지역/지구 정보가 없습니다.', y2, {fontSize:10}); y2 += 0.4;
+      pptxPara(s2, '등록된 용도지역/지구 정보가 없습니다.', y2, {fontSize:11.5}); y2 += 0.5;
     }
-    pptxNote(s2, '※ 산지관리법 제2조에 따라 지목이 전·답·과수원·목장용지인 토지는 법상 "산지" 정의에서 제외되며, 이런 농지를 전용할 경우 농지전용부담금이 발생합니다(다음 장 참고).', y2, 0.5);
+    var farmRows = domTableRows(document.getElementById('farmlandTable'));
+    if(farmRows.length > 1){
+      pptxSub(s2, '농지전용부담금 (참고)', y2); y2 += 0.45;
+      y2 += pptxTable(s2, farmRows, MX, y2, CW, { rowH:0.4, fontSize:9.5 }) + 0.3;
+    }
+    // 남는 공간은 메모란으로 채워 페이지 하단까지 비지 않게 마무리
+    fillRemainder(s2, y2, '메모');
 
     // Ⅲ. 설비 및 경제성
     var s3 = pres.addSlide(); slides.push(s3);
     pptxTitle(s3, 'Ⅲ', '설비 설계 및 경제성 분석');
-    var y3 = 1.05;
+    var y3 = 1.15;
     var facilityType = document.getElementById('facilityType').value;
-    var facilityLabel = facilityType === 'agrivoltaic' ? '영농형 태양광 (농지 병행 · 1단 고정 · 차광률 30% 이내)' : '일반 태양광';
-    pptxBadge(s3, '설비 구분 — ' + facilityLabel, PPT.ACCENT, y3); y3 += 0.5;
-    if(facilityType === 'agrivoltaic'){
-      pptxNote(s3, '「영농형태양광특별법」(2026.12.17 시행) 적용 · 사업기간 최대 23년(최초 5년+연장 18년) · 농업인·주민참여협동조합·농업법인만 사업권 보유', y3, 0.35);
-      y3 += 0.4;
-    }
-    pptxSub(s3, '모듈 사양 · 배치 결과', y3); y3 += 0.35;
+    var facilityLabel = facilityType === 'agrivoltaic' ? '영농형 태양광 (1단 고정 · GCR≤30% · 사업기간 최대 23년)' : '일반 태양광';
+    pptxBadge(s3, '설비 구분 — ' + facilityLabel, PPT.ACCENT, y3); y3 += 0.75;
+    pptxSub(s3, '모듈 사양 · 배치 결과', y3); y3 += 0.45;
     y3 += pptxTable(s3, [
       ['정격출력','장변','단변','거치 단수','경사각','경계 이격'],
       [val('moduleWatt')+'W', val('moduleLong')+'mm', val('moduleShort')+'mm', val('stackCount')+'단', val('tiltAngle')+'°', val('setbackM')+'m'],
-    ], MX, y3, CW, { rowH:0.32, fontSize:9.5 }) + 0.15;
+    ], MX, y3, CW, { rowH:0.42, fontSize:10.5 }) + 0.25;
     y3 += pptxTable(s3, [
       ['배치 모듈수','테이블수×단수','설비용량','차광률(GCR)'],
       [txt('resModulesLayout'), txt('resGrid'), txt('resCapacity'), txt('resGcr')],
-    ], MX, y3, CW, { rowH:0.32, fontSize:9.5 }) + 0.3;
-    pptxSub(s3, '경제성 분석 (참고용)', y3); y3 += 0.35;
+    ], MX, y3, CW, { rowH:0.42, fontSize:10.5 }) + 0.4;
+    pptxSub(s3, '경제성 분석 (참고용)', y3); y3 += 0.45;
     y3 += pptxTable(s3, [
       ['설치비/kW','SMP','REC가격','REC가중치','이용률','O&M','기간'],
       [val('econCapex'), val('econSmp'), val('econRecPrice'), val('econRecWeight'), val('econCf')+'%', val('econOm')+'%', val('econYears')+'년'],
-    ], MX, y3, CW, { rowH:0.32, fontSize:8.5 }) + 0.15;
+    ], MX, y3, CW, { rowH:0.4, fontSize:9.5 }) + 0.2;
     y3 += pptxTable(s3, [
       ['총사업비','연간발전량','연간매출','연간O&M','회수기간','누적순이익'],
       [txt('econCapexTotal'), txt('econGen'), txt('econRevenue'), txt('econOmCost'), txt('econPayback'), txt('econNet')],
-    ], MX, y3, CW, { rowH:0.32, fontSize:8.5 }) + 0.25;
-    pptxNote(s3, '단순 참고용 추정치이며, 실제 사업성은 EPC사 견적과 최신 SMP·REC 시세로 재검토가 필요합니다.', y3, 0.35);
+    ], MX, y3, CW, { rowH:0.4, fontSize:9.5 }) + 0.3;
+    pptxNote(s3, '※ 참고용 추정치 — 실제 사업성은 EPC사 견적·최신 시세로 재검토 필요', y3, 0.3); y3 += 0.45;
 
-    // Ⅳ. 결론 및 제안
-    var s4 = pres.addSlide(); slides.push(s4);
-    pptxTitle(s4, 'Ⅳ', '결론 및 제안');
-    pptxPara(s4, '본 제안서는 ' + (addrList.join(', ')||'【 부지 】') + '에 대한 태양광 발전사업의 타당성을 검토한 결과를 종합한 것이다. 부지현황·인허가·경제성 분석 결과를 바탕으로 사업 추진이 【 타당함 / 조건부 타당함 】 것으로 판단되며, 세부 실행계획에 대한 협의를 제안한다.', 1.1, {h:1.1, fontSize:12});
-
-    // 붙임
-    var s5 = pres.addSlide(); slides.push(s5);
-    pptxTitle(s5, null, '붙임');
-    s5.addShape('rect', { x:MX, y:1.15, w:CW, h:6.5, fill:{color:PPT.SURFACE2}, line:{color:PPT.LINE, width:1.5, dashType:'dash'} });
-    s5.addText('위성사진 + 모듈 배치 시뮬레이션 도면', { x:MX, y:4.0, w:CW, h:0.5, fontFace:PPT_FONT, fontSize:14, bold:true, color:PPT.MUTED, align:'center' });
-    s5.addText('「태양광 부지 진단 시스템」 04번 화면(위성사진 위에 모듈 배치가\n겹쳐 표시된 화면)을 캡처하여 이 영역에 붙여넣으세요.', { x:MX, y:4.55, w:CW, h:0.6, fontFace:PPT_FONT, fontSize:11, color:PPT.MUTED, align:'center' });
+    // 붙임 (남는 공간을 채우는 사진 첨부란 — 별도 페이지를 두지 않고 이 페이지 하단에 배치)
+    pptxSub(s3, '붙임', y3); y3 += 0.4;
+    fillRemainder(s3, y3, '위성사진 + 모듈 배치 화면 캡처를 붙여넣으세요');
 
     var total = slides.length;
     slides.forEach(function(sl, i){ addPageNumber(sl, i+1, total); });
