@@ -398,14 +398,13 @@ a{color:var(--accent);}
 
         <div class="card">
           <h3><span class="n">06</span> 선로(계통) 여유용량 확인</h3>
-          <p class="desc">한전 "신재생에너지 접속정보" 사이트는 <b>로그인 없이</b> 지역(시/도·구/군·동/면) 단위로 변전소·변압기 여유용량을 조회할 수 있습니다. 아래 버튼으로 열어 "22.9kV 연계" 탭에서 부지가 속한 지역을 선택해 확인한 뒤, 결과를 아래에 입력하세요. 더 세부적인 D/L(배전선로) 단위 조회는 사이버지점 로그인 후 별도 확인이 필요합니다.</p>
+          <p class="desc">한전ON "배전선로 여유용량" 조회는 <b>로그인 없이</b> 주소(시/도·시·구/군·동/면·리·상세번지)를 순서대로 선택하면 지번 단위로 배전선로(D/L) 여유용량을 바로 확인할 수 있습니다. 아래 버튼으로 열어 부지 주소를 선택해 확인한 뒤, 결과를 아래에 입력하세요.</p>
           <div class="copytext" id="addrCopyText">-</div>
           <div class="kepco">
             <button class="btn" id="copyAddrBtn" type="button">주소 복사</button>
-            <a class="btn primary" id="kepcoLink" href="https://cyber.kepco.co.kr/ckepco/mobile/resources/resources_search_pt_capa.jsp" target="_blank" rel="noopener">한전 접속가능 용량조회 열기 (로그인 불필요) ↗</a>
-            <a class="btn" id="kepcoLoginLink" href="https://online.kepco.co.kr/EWM092D00" target="_blank" rel="noopener">D/L 단위 정밀조회 (로그인 필요) ↗</a>
+            <a class="btn primary" id="kepcoLink" href="https://online.kepco.co.kr/EWM092D00" target="_blank" rel="noopener">한전ON 배전선로 여유용량 조회 열기 (로그인 불필요) ↗</a>
           </div>
-          <div class="note">경로: 신재생에너지 접속정보 → 접속가능 용량조회 → 22.9kV 연계 → 시/도·구/군·동/면 선택 → 검색(변전소·변압기 여유용량 표시). 변전소/변압기 단위 참고자료이며, 실제 D/L(배전선로) 단위 여유용량과 계통접속 가능 여부는 한전 담당 지사 확인이 최종 기준입니다.</div>
+          <div class="note">경로: 한전ON → 배전선로 여유용량 → "주소로 검색" 탭 → 시/도·시·구/군·동/면·리·상세번지 순서대로 선택. 조회 결과는 참고자료이며, 실제 계통접속 가능 여부는 한전 담당 지사 확인이 최종 기준입니다.</div>
           <div class="settings" style="grid-template-columns:repeat(2,1fr);margin-top:14px;">
             <div class="field">
               <label>계통연계 가능 여부(한전 확인 결과)</label>
@@ -1659,13 +1658,21 @@ a{color:var(--accent);}
 
     var slides = [];
 
-    // 0. 표지
+    // 0. 표지 — 어둡지 않은 밝은 배경 + 태양(원+햇살) 모티브로 간단하게 구성
     var s0 = pres.addSlide(); slides.push(s0);
-    s0.background = { color: PPT.DARK };
-    s0.addText('태양광 발전사업 제안서', { x:0.6, y:4.6, w:PAGE_W-1.2, h:0.9, fontFace:PPT_FONT, fontSize:27, bold:true, color:PPT.WHITE, align:'center' });
-    s0.addText(addrList.length ? addrSummary(addrList, ' / ') : '[ 부지 주소를 입력하세요 ]', { x:0.6, y:5.5, w:PAGE_W-1.2, h:0.5, fontFace:PPT_FONT, fontSize:13, italic:true, color:PPT.ACCENT, align:'center' });
+    s0.background = { color: 'FBF7EE' };
+    var sunCx = PAGE_W/2, sunCy = 2.3, sunR = 0.5;
+    s0.addShape('ellipse', { x:sunCx-sunR, y:sunCy-sunR, w:sunR*2, h:sunR*2, fill:{color:PPT.ACCENT}, line:{type:'none'} });
+    [[0,-1],[0,1],[1,0],[-1,0]].forEach(function(d){
+      var rw = d[0] ? 0.32 : 0.075, rh = d[0] ? 0.075 : 0.32;
+      var rx = sunCx + d[0]*(sunR+0.14) - rw/2, ry = sunCy + d[1]*(sunR+0.14) - rh/2;
+      s0.addShape('rect', { x:rx, y:ry, w:rw, h:rh, fill:{color:PPT.ACCENT}, line:{type:'none'} });
+    });
+    s0.addText('태양광 발전사업 제안서', { x:0.6, y:3.35, w:PAGE_W-1.2, h:0.7, fontFace:PPT_FONT, fontSize:25, bold:true, color:PPT.DARK, align:'center' });
+    s0.addText(addrList.length ? addrSummary(addrList, ' / ') : '[ 부지 주소를 입력하세요 ]', { x:0.6, y:4.05, w:PAGE_W-1.2, h:0.5, fontFace:PPT_FONT, fontSize:13, italic:true, color:PPT.ACCENT, align:'center' });
+    s0.addShape('rect', { x:PAGE_W/2-0.3, y:9.6, w:0.6, h:0.03, fill:{color:PPT.ACCENT}, line:{type:'none'} });
     s0.addText('제안기관: ㈜클레스(KLES)   ·   생성일: ' + dateStr + '   ·   「태양광 부지 진단 시스템」에서 자동 생성된 초안',
-      { x:0.6, y:6.1, w:PAGE_W-1.2, h:0.4, fontFace:PPT_FONT, fontSize:9.5, color:'B9C2BC', align:'center' });
+      { x:0.6, y:9.75, w:PAGE_W-1.2, h:0.4, fontFace:PPT_FONT, fontSize:9.5, color:PPT.MUTED, align:'center' });
 
     // Ⅰ. 사업 개요 + 인허가 요약 + 결론 (내용을 크게 배치해 페이지 하단까지 채운다)
     var s1 = pres.addSlide(); slides.push(s1);
@@ -1706,8 +1713,6 @@ a{color:var(--accent);}
     y1 += 0.15;
     pptxSub(s1, '2. 결론 및 제안', y1); y1 += 0.5;
     pptxPara(s1, '본 제안서는 ' + (addrSummary(addrList)||'【 부지 】') + '에 대한 태양광 발전사업의 타당성을 검토한 결과를 종합한 것이다. 위 인허가 검토 결과를 바탕으로 사업 추진이 【 타당함 / 조건부 타당함 】 것으로 판단되며, 세부 실행계획에 대한 협의를 제안한다.', y1, {h:0.85, fontSize:13});
-    y1 += 0.85 + 0.3;
-    fillRemainder(s1, y1, '메모');
 
     // Ⅱ. 부지현황
     var s2 = pres.addSlide(); slides.push(s2);
@@ -1728,8 +1733,6 @@ a{color:var(--accent);}
       pptxSub(s2, '3. 농지전용부담금 (참고)', y2); y2 += 0.45;
       y2 += pptxTable(s2, farmRows, MX, y2, CW, { rowH:0.4, fontSize:9.5 }) + 0.3;
     }
-    // 남는 공간은 메모란으로 채워 페이지 하단까지 비지 않게 마무리
-    fillRemainder(s2, y2, '메모');
 
     // Ⅲ. 설비 및 경제성
     var s3 = pres.addSlide(); slides.push(s3);
