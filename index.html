@@ -61,23 +61,36 @@ header.top h1{font-size:29px;letter-spacing:-0.02em;}
 header.top .titlebar{width:46px;height:4px;border-radius:4px;margin:12px 0 2px;
   background:linear-gradient(90deg,var(--accent),color-mix(in srgb, var(--accent) 25%, transparent));}
 header.top p{color:var(--muted);font-size:13.5px;margin:2px 0 0;max-width:640px;}
-.searchbar{position:relative;margin:18px 0 6px;}
-.searchbar input{
-  width:100%;font-size:15px;padding:13px 46px 13px 16px;border-radius:12px;border:1.5px solid var(--line);
-  background:var(--surface);color:var(--ink);font-family:var(--sans);
+.searchbar{position:relative;margin:18px 0 6px;display:flex;gap:8px;align-items:stretch;}
+.searchwrap{position:relative;flex:1;min-width:0;}
+.searchwrap input{
+  width:100%;height:100%;font-size:15px;padding:13px 46px 13px 16px;border-radius:12px;border:1.5px solid var(--line);
+  background:var(--surface);color:var(--ink);font-family:var(--sans);box-sizing:border-box;
 }
-.searchbar input:focus{outline:2px solid var(--accent);outline-offset:1px;}
-.searchbar .icon{position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:16px;pointer-events:none;}
+.searchwrap input:focus{outline:2px solid var(--accent);outline-offset:1px;}
+.searchwrap .icon{position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:16px;pointer-events:none;}
+.recentWrap{position:relative;flex:none;}
+.recentBtn{
+  height:100%;padding:0 16px;font-size:13.5px;border-radius:12px;border:1.5px solid var(--line);
+  background:var(--surface);color:var(--ink);font-family:var(--sans);cursor:pointer;white-space:nowrap;
+}
+.recentBtn:hover{background:var(--surface-2);}
 .dropdown{
   position:absolute;left:0;right:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--line);
   border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.12);z-index:20;max-height:320px;overflow:auto;
 }
+#recentPanel{left:auto;right:0;width:320px;max-width:min(90vw,320px);}
 .dropdown .item{display:flex;gap:10px;align-items:flex-start;padding:11px 14px;cursor:pointer;border-bottom:1px solid var(--line);}
 .dropdown .item:last-child{border-bottom:none;}
 .dropdown .item:hover{background:var(--surface-2);}
+.dropdown .recentEmpty{padding:14px;font-size:13px;color:var(--muted);}
+.dropdown .recentClear{display:block;text-align:center;padding:9px 14px;font-size:12.5px;color:var(--muted);cursor:pointer;border-top:1px solid var(--line);}
+.dropdown .recentClear:hover{background:var(--surface-2);color:var(--ink);}
+.dropdown .item .rmBtn{flex:none;margin-left:auto;color:var(--muted);font-size:13px;padding:0 4px;}
+.dropdown .item .rmBtn:hover{color:var(--bad-ink);}
 .tag{font-family:var(--mono);font-size:10.5px;padding:2px 7px;border-radius:6px;background:var(--neutral-bg);color:var(--neutral-ink);flex:none;margin-top:2px;letter-spacing:.02em;}
 .tag.road{background:var(--ok-bg);color:var(--ok-ink);}
-.dropdown .addrtext{font-size:13.5px;}
+.dropdown .addrtext{font-size:13.5px;flex:1;min-width:0;}
 .hint{color:var(--muted);font-size:12px;margin-top:6px;}
 #status{margin:14px 0;font-size:13.5px;color:var(--muted);}
 #status.err{color:var(--bad-ink);}
@@ -146,7 +159,6 @@ table.zonelist tr.totalrow td{font-weight:700;border-top:1.5px solid var(--accen
 .maplabel{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;}
 .maplabel .lbl{font-size:11px;color:var(--muted);letter-spacing:.02em;}
 .maplabel .src{font-size:10px;color:var(--muted);}
-svg.simsvg{width:100%;height:auto;background:var(--surface-2);border-radius:10px;display:block;}
 .simresult{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;}
 .simresult .box{flex:1;min-width:150px;background:var(--surface-2);border-radius:10px;padding:10px 12px;}
 .simresult .box .lbl{font-size:11px;color:var(--muted);}
@@ -185,7 +197,7 @@ a{color:var(--accent);}
   .rail{display:grid;grid-template-columns:repeat(4,1fr);position:static;margin-bottom:14px;}
   .cards{gap:10px;}
   #mapview{height:260px;}
-  svg.simsvg,.card{page-break-inside:avoid;}
+  .card{page-break-inside:avoid;}
 }
 </style>
 
@@ -207,9 +219,15 @@ a{color:var(--accent);}
   </header>
 
   <div class="searchbar">
-    <input id="addrInput" type="text" placeholder="지번 또는 도로명 주소를 입력하세요 — 여러 필지를 계속 추가할 수 있어요" autocomplete="off">
-    <span class="icon">⌕</span>
-    <div id="dropdown" class="dropdown hidden"></div>
+    <div class="searchwrap">
+      <input id="addrInput" type="text" placeholder="지번 또는 도로명 주소를 입력하세요 — 여러 필지를 계속 추가할 수 있어요" autocomplete="off">
+      <span class="icon">⌕</span>
+      <div id="dropdown" class="dropdown hidden"></div>
+    </div>
+    <div class="recentWrap">
+      <button class="recentBtn" id="recentBtn" type="button" title="최근 검색한 주소">🕘 최근 검색</button>
+      <div id="recentPanel" class="dropdown hidden"></div>
+    </div>
   </div>
   <div class="hint">브이월드(VWorld) 공간정보 오픈API 기반 · 지상형(地上型) 부지 검토용 · 필지를 여러 개 추가하면 합산 분석</div>
   <div id="parcelChips" class="parcelchips"></div>
@@ -288,7 +306,7 @@ a{color:var(--accent);}
 
         <div class="card">
           <h3><span class="n">04</span> 필지 형상 · 모듈 배치 시뮬레이션</h3>
-          <p class="desc">추가한 모든 필지를 하나로 합쳐, 필지 경계 안에 실제로 들어가는 모듈 테이블 하나씩을 검사해 배치합니다. 아래 배치도는 실제 방위(정북 기준, 위성사진과 동일한 방향)로 그려집니다. 실제 배치는 정밀 실측·설계 시 달라질 수 있습니다.</p>
+          <p class="desc">추가한 모든 필지를 하나로 합쳐, 필지 경계 안에 실제로 들어가는 모듈 테이블 하나씩을 검사해 배치합니다. 배치 결과는 아래 위성사진 위에 실제 방위(정북 기준)로 표시됩니다. 실제 배치는 정밀 실측·설계 시 달라질 수 있습니다.</p>
 
           <div class="maplabel"><span class="lbl">위성사진 — 필지 경계 오버레이</span><span class="src">브이월드 위성영상</span></div>
           <div id="mapview"></div>
@@ -321,8 +339,6 @@ a{color:var(--accent);}
             <div class="field"><label>경계 이격(m)</label><input id="setbackM" type="number" value="3" min="0" max="20" step="0.5"></div>
             <div class="field"><label>가용면적비율(%)</label><input id="usableRatio" type="number" value="75" min="30" max="100" step="1"></div>
           </div>
-
-          <svg id="simSvg" class="simsvg" viewBox="0 0 400 300"></svg>
 
           <div class="simresult">
             <div class="box"><div class="lbl">실제 배치 모듈수(필지 모양 반영)</div><div class="val mono" id="resModulesLayout">-</div></div>
@@ -628,6 +644,7 @@ a{color:var(--accent);}
   });
   document.addEventListener('click', function(e){
     if(!dropdown.contains(e.target) && e.target !== addrInput) dropdown.classList.add('hidden');
+    if(!recentPanel.contains(e.target) && e.target !== recentBtn) recentPanel.classList.add('hidden');
   });
 
   function runSearch(q){
@@ -686,11 +703,90 @@ a{color:var(--accent);}
     fetchParcelData(p).then(function(){
       p.loading = false;
       recomputeAll();
+      saveRecentAddr(item, text);
     }).catch(function(){
       p.loading = false; p.error = true;
       recomputeAll();
     });
   }
+
+  // ---------- 최근 검색한 주소 (localStorage, 이 브라우저에서만 유지) ----------
+  var RECENT_ADDR_KEY = 'recentAddrHistory_v1';
+  var RECENT_ADDR_MAX = 10;
+  var recentBtn = document.getElementById('recentBtn');
+  var recentPanel = document.getElementById('recentPanel');
+
+  function loadRecentAddr(){
+    try{
+      var raw = localStorage.getItem(RECENT_ADDR_KEY);
+      var arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    }catch(e){ return []; }
+  }
+
+  function saveRecentAddrList(list){
+    try{ localStorage.setItem(RECENT_ADDR_KEY, JSON.stringify(list)); }catch(e){}
+  }
+
+  function saveRecentAddr(item, text){
+    var list = loadRecentAddr().filter(function(e){ return e.id !== item.id; });
+    list.unshift({ id: item.id, text: text, item: item, ts: Date.now() });
+    if(list.length > RECENT_ADDR_MAX) list = list.slice(0, RECENT_ADDR_MAX);
+    saveRecentAddrList(list);
+  }
+
+  function removeRecentAddr(id){
+    var list = loadRecentAddr().filter(function(e){ return e.id !== id; });
+    saveRecentAddrList(list);
+    renderRecentPanel();
+  }
+
+  function renderRecentPanel(){
+    var list = loadRecentAddr();
+    if(!list.length){
+      recentPanel.innerHTML = '<div class="recentEmpty">최근 검색한 주소가 없습니다.</div>';
+      return;
+    }
+    recentPanel.innerHTML = list.map(function(e, idx){
+      return '<div class="item" data-idx="'+idx+'"><span class="tag">🕘</span>' +
+        '<span class="addrtext">' + escapeHtml(e.text) + '</span>' +
+        '<span class="rmBtn" data-rm-idx="'+idx+'" title="기록에서 삭제">✕</span></div>';
+    }).join('') + '<span class="recentClear" id="recentClearBtn">전체 기록 삭제</span>';
+
+    Array.prototype.forEach.call(recentPanel.querySelectorAll('.item'), function(el){
+      el.addEventListener('click', function(e){
+        if(e.target && e.target.hasAttribute && e.target.hasAttribute('data-rm-idx')) return;
+        var idx = +el.getAttribute('data-idx');
+        var entry = list[idx];
+        recentPanel.classList.add('hidden');
+        if(entry) addParcel(entry.item);
+      });
+    });
+    Array.prototype.forEach.call(recentPanel.querySelectorAll('.rmBtn'), function(el){
+      el.addEventListener('click', function(e){
+        e.stopPropagation();
+        var idx = +el.getAttribute('data-rm-idx');
+        var entry = list[idx];
+        if(entry) removeRecentAddr(entry.id);
+      });
+    });
+    var clearBtn = document.getElementById('recentClearBtn');
+    if(clearBtn){
+      clearBtn.addEventListener('click', function(e){
+        e.stopPropagation();
+        saveRecentAddrList([]);
+        renderRecentPanel();
+      });
+    }
+  }
+
+  recentBtn.addEventListener('click', function(e){
+    e.stopPropagation();
+    dropdown.classList.add('hidden');
+    var willShow = recentPanel.classList.contains('hidden');
+    if(willShow){ renderRecentPanel(); }
+    recentPanel.classList.toggle('hidden', !willShow);
+  });
 
   function removeParcel(pnu){
     state.parcels = state.parcels.filter(function(p){ return p.pnu !== pnu; });
@@ -1183,12 +1279,10 @@ a{color:var(--accent);}
   }
 
   function runSimulation(){
-    var svg = document.getElementById('simSvg');
     var note = document.getElementById('simNote');
     var rect = state.combined.rect;
     var hasAny = state.parcels.some(function(p){ return p.projected && p.projected.length>=3; });
     if(!rect || !rect.w || !hasAny){
-      svg.innerHTML = '';
       document.getElementById('resModulesLayout').textContent = '-';
       document.getElementById('resModulesArea').textContent = '-';
       document.getElementById('resCapacity').textContent = '-';
@@ -1246,7 +1340,6 @@ a{color:var(--accent);}
       '설계 기준: 위도 ' + lat.toFixed(2) + '°N 동지 태양고도 ' + sunAltDeg.toFixed(1) + '°에서 앞줄 그늘이 뒷줄에 닿지 않도록 행간(pitch) ' + pitch.toFixed(2) + 'm 적용(경사각이 커질수록 그늘이 길어져 행간도 늘어납니다). 각 테이블(가로 ' + longM.toFixed(2) + 'm × 세로 ' + tableDepth.toFixed(2) + 'm, ' + spec.stack + '단 모듈 ' + spec.stack + '매 탑재)의 네 꼭짓점이 추가된 필지들 중 하나에라도 들어가는지 하나씩 검사해 배치했습니다(필지 경계선이 서로 붙어있으면 그 경계를 넘어서도 배치됩니다). 면적기준 참고치는 가용면적비율 ' + spec.usableRatioPct + '%만 적용한 단순 상한값입니다.' +
       (spec.isAgri ? ' 영농형 태양광은 1단 고정 + 차광률(GCR) 30% 이내를 만족하도록 행간을 자동으로 넓혀 계산했습니다(현재 ' + gcrPct.toFixed(1) + '%).' : '');
 
-    drawSvg(rect, rotatedPolys, layout, tableDepth);
     state.lastLayout = { tables: layout.tables, rect: rect };
     updateMapModules();
     updateEconomics(capacityKw);
@@ -1338,51 +1431,6 @@ a{color:var(--accent);}
   }
   document.getElementById('facilityType').addEventListener('change', updateFacilityTypeNote);
   syncStackCountLock();
-
-  function drawSvg(rect, rotatedPolys, layout, tableDepth){
-    var svg = document.getElementById('simSvg');
-    var spanX = rect.maxX-rect.minX, spanY = rect.maxY-rect.minY;
-    var pad = 24, drawW = 400-2*pad, drawH = 300-2*pad;
-    var scale = Math.min(drawW/Math.max(spanX,0.01), drawH/Math.max(spanY,0.01));
-
-    function toSvg(x,y){ return [ pad + (x-rect.minX)*scale, pad + (rect.maxY-y)*scale ]; }
-
-    var css = getComputedStyle(document.documentElement);
-    var lineColor = css.getPropertyValue('--line').trim() || '#ccc';
-    var inkColor = css.getPropertyValue('--muted').trim() || '#888';
-    var accentColor = css.getPropertyValue('--accent').trim() || '#d97f2c';
-
-    var parts = [];
-    // each parcel's own real (possibly irregular) outline
-    rotatedPolys.forEach(function(poly){
-      var pd = poly.map(function(p,i){ var s=toSvg(p[0],p[1]); return (i===0?'M':'L')+s[0].toFixed(1)+','+s[1].toFixed(1); }).join(' ') + ' Z';
-      parts.push('<path d="'+pd+'" fill="'+lineColor+'" fill-opacity="0.35" stroke="'+inkColor+'" stroke-width="1.5"/>');
-    });
-
-    var maxDraw = 2000;
-    var tables = layout.tables;
-    var n = Math.min(tables.length, maxDraw);
-    for(var i=0;i<n;i++){
-      var t = tables[i];
-      var a = toSvg(t.x0, t.y1), b = toSvg(t.x1, t.y0);
-      parts.push('<rect x="'+Math.min(a[0],b[0]).toFixed(1)+'" y="'+Math.min(a[1],b[1]).toFixed(1)+'" width="'+Math.max(0.5,Math.abs(b[0]-a[0])).toFixed(1)+'" height="'+Math.max(0.5,Math.abs(b[1]-a[1])).toFixed(1)+'" fill="'+accentColor+'" fill-opacity="0.8" stroke="'+css.getPropertyValue('--surface').trim()+'" stroke-width="0.4"/>');
-    }
-    if(tables.length > maxDraw){
-      var lbl = toSvg(layout.uMinX, layout.uMinY);
-      parts.push('<text x="'+lbl[0].toFixed(1)+'" y="'+(lbl[1]+14).toFixed(1)+'" font-size="9" fill="'+inkColor+'">대표 '+maxDraw+'개만 표시 (전체 '+tables.length+'개)</text>');
-    }
-
-    // north arrow — this diagram is drawn true north-up (angle 0, no rotation), the same
-    // orientation as the satellite map above it, so "up" here = "up" on the map.
-    var nx = 400-pad-6, ny0 = pad+2, ny1 = pad+18;
-    parts.push('<g>'+
-      '<line x1="'+nx+'" y1="'+ny1+'" x2="'+nx+'" y2="'+ny0+'" stroke="'+inkColor+'" stroke-width="1.4"/>'+
-      '<path d="M'+(nx-4)+','+(ny0+6)+' L'+nx+','+ny0+' L'+(nx+4)+','+(ny0+6)+' Z" fill="'+inkColor+'"/>'+
-      '<text x="'+nx+'" y="'+(ny1+11)+'" font-size="10" font-weight="700" fill="'+inkColor+'" text-anchor="middle">N</text>'+
-    '</g>');
-
-    svg.innerHTML = parts.join('');
-  }
 
   // ---------- copy buttons ----------
   function bindCopy(btnId, textId){
