@@ -310,6 +310,10 @@ a{color:var(--accent);}
 
           <div class="maplabel"><span class="lbl">위성사진 — 필지 경계 오버레이</span><span class="src">브이월드 위성영상</span></div>
           <div id="mapview"></div>
+          <div class="kepco" style="margin-top:10px;">
+            <a class="btn" id="kakaoMapBtn" href="#" target="_blank" rel="noopener">카카오맵에서 보기 ↗</a>
+            <a class="btn" id="naverMapBtn" href="#" target="_blank" rel="noopener">네이버지도에서 보기 ↗</a>
+          </div>
 
           <div class="settings">
             <div class="field">
@@ -374,6 +378,18 @@ a{color:var(--accent);}
             <div class="box"><div class="lbl">운영기간(입력값) 누적 순이익</div><div class="val mono" id="econNet">-</div></div>
           </div>
           <div class="note" id="econNote"></div>
+
+          <div class="maplabel" style="margin-top:16px;"><span class="lbl">농지전용부담금 반영 비교 (위 03번 계산값 기준)</span></div>
+          <div class="overflow">
+            <table class="zonelist" id="econLevyTable">
+              <thead><tr><th>구분</th><th>총 사업비(투자비)</th><th>단순 회수기간</th><th>운영기간 누적 순이익</th></tr></thead>
+              <tbody id="econLevyBody">
+                <tr><td>부담금 미적용</td><td class="mono" id="econCapexTotalNoLevy">-</td><td class="mono" id="econPaybackNoLevy">-</td><td class="mono" id="econNetNoLevy">-</td></tr>
+                <tr><td>부담금 적용(+농지전용부담금)</td><td class="mono" id="econCapexTotalWithLevy">-</td><td class="mono" id="econPaybackWithLevy">-</td><td class="mono" id="econNetWithLevy">-</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="note" id="econLevyNote"></div>
 
           <div class="kepco">
             <a class="btn" href="https://www.kpx.or.kr/menu.es?mid=a30401000000" target="_blank" rel="noopener">전력거래소 — 오늘의 SMP·REC 시세 확인 ↗</a>
@@ -712,7 +728,7 @@ a{color:var(--accent);}
 
   // ---------- 최근 검색한 주소 (localStorage, 이 브라우저에서만 유지) ----------
   var RECENT_ADDR_KEY = 'recentAddrHistory_v1';
-  var RECENT_ADDR_MAX = 10;
+  var RECENT_ADDR_MAX = 20;
   var recentBtn = document.getElementById('recentBtn');
   var recentPanel = document.getElementById('recentPanel');
 
@@ -946,6 +962,28 @@ a{color:var(--accent);}
     if(bounds) leafletMap.fitBounds(bounds, { padding:[28,28], maxZoom:19 });
     setTimeout(function(){ if(leafletMap) leafletMap.invalidateSize(); }, 60);
     updateMapModules();
+    updateExternalMapLinks();
+  }
+
+  // ---------- 카카오맵 · 네이버지도 바로가기 (필지 중심 좌표 기준) ----------
+  function updateExternalMapLinks(){
+    var kakaoBtn = document.getElementById('kakaoMapBtn');
+    var naverBtn = document.getElementById('naverMapBtn');
+    if(!kakaoBtn || !naverBtn) return;
+    var lat = state.combined.lat0, lon = state.combined.lon0;
+    if((lat==null || lon==null) && state.parcels.length && state.parcels[0].point){
+      lat = state.parcels[0].point.y; lon = state.parcels[0].point.x;
+    }
+    if(lat==null || lon==null || isNaN(lat) || isNaN(lon)){
+      kakaoBtn.style.pointerEvents = 'none'; kakaoBtn.style.opacity = '0.5';
+      naverBtn.style.pointerEvents = 'none'; naverBtn.style.opacity = '0.5';
+      return;
+    }
+    kakaoBtn.style.pointerEvents = ''; kakaoBtn.style.opacity = '';
+    naverBtn.style.pointerEvents = ''; naverBtn.style.opacity = '';
+    var name = (state.parcels[0] && state.parcels[0].addressText) || '부지위치';
+    kakaoBtn.href = 'https://map.kakao.com/link/map/' + encodeURIComponent(name) + ',' + lat + ',' + lon;
+    naverBtn.href = 'https://map.naver.com/p?title=' + encodeURIComponent(name) + '&lat=' + lat + '&lng=' + lon;
   }
 
   // ---------- module table footprints, drawn directly on top of the satellite photo ----------
@@ -1043,6 +1081,7 @@ a{color:var(--accent);}
 
   // ---------- 농지전용부담금(추정) ----------
   var FARMLAND_JIMOK = {'전':1,'답':1,'과수원':1};
+  var lastFarmlandTotal = 0; // 05번 경제성 분석의 "부담금 적용" 시나리오에서 사용
   function basePricePerSqm(p){
     if(p.extraChar && p.extraChar.pblntfPclnd) return +p.extraChar.pblntfPclnd;
     if(p.extraPrice && p.extraPrice.pblntfPclnd) return +p.extraPrice.pblntfPclnd;
@@ -1083,6 +1122,8 @@ a{color:var(--accent);}
     if(!anyFarmland){
       body.innerHTML = '<tr><td colspan="7">추가된 필지 중 농지(전·답·과수원)가 없어 해당 없음</td></tr>';
       note.textContent = '';
+      lastFarmlandTotal = 0;
+      updateEconomics(lastCapacityKw);
       return;
     }
     if(anyPriced){
@@ -1090,6 +1131,8 @@ a{color:var(--accent);}
     }
     body.innerHTML = rows;
     note.textContent = '농지법 시행규칙 기준: 개별공시지가 × (농업진흥지역 안 30% / 밖 20%), ㎡당 상한 '+fmt(cap,0)+'원. 필지별 실측(GIS) 면적 전체를 전용하는 것으로 가정한 값입니다. 실제 부과액은 농지관리위원회·시군구 심사 결과에 따라 달라질 수 있습니다.';
+    lastFarmlandTotal = anyPriced ? grandTotal : 0;
+    updateEconomics(lastCapacityKw);
   }
   ['farmlandZone','farmlandCap'].forEach(function(id){
     document.getElementById(id).addEventListener('input', renderFarmlandTable);
@@ -1350,11 +1393,15 @@ a{color:var(--accent);}
   function updateEconomics(capacityKw){
     lastCapacityKw = capacityKw || 0;
     var note = document.getElementById('econNote');
+    var levyNote = document.getElementById('econLevyNote');
     if(!lastCapacityKw){
-      ['econCapexTotal','econGen','econRevenue','econOmCost','econPayback','econNet'].forEach(function(id){
+      ['econCapexTotal','econGen','econRevenue','econOmCost','econPayback','econNet',
+       'econCapexTotalNoLevy','econPaybackNoLevy','econNetNoLevy',
+       'econCapexTotalWithLevy','econPaybackWithLevy','econNetWithLevy'].forEach(function(id){
         document.getElementById(id).textContent = '-';
       });
       note.textContent = '';
+      levyNote.textContent = '';
       return;
     }
     var capexPerKw = parseFloat(document.getElementById('econCapex').value) || 0;
@@ -1382,6 +1429,24 @@ a{color:var(--accent);}
     document.getElementById('econNet').textContent = fmt(cumulativeNet/10000,0) + ' 만원';
 
     note.textContent = '판매단가 = SMP('+fmt(smp,0)+'원/kWh) + REC('+fmt(recPrice,0)+'원)×가중치('+recWeight+')/1000 = 약 '+fmt(sellPricePerKwh,1)+'원/kWh 가정. 용량 '+fmt(lastCapacityKw,1)+'kWp, 이용률 '+cfPct+'%로 연간 발전량을 추정한 단순 계산이며, 토지비용·금융비용(이자)·세금·REC 가중치 실제 고시값은 반영하지 않았습니다. 실제 사업성은 반드시 EPC사 견적과 최신 SMP·REC 시세, 해당 부지의 REC 가중치 고시 기준으로 재검토하세요.';
+
+    // ---------- 농지전용부담금 적용/미적용 비교 (03번 부담금 추정 총액을 총사업비에 더할지 여부) ----------
+    // O&M은 설비(용지 아닌) 설치비 기준 비율이므로 두 시나리오에서 동일하게 유지하고,
+    // 총사업비·회수기간·누적순이익만 부담금 반영 여부에 따라 달라진다.
+    var capexTotalWithLevy = capexTotal + lastFarmlandTotal;
+    var paybackYearsWithLevy = annualNet > 0 ? (capexTotalWithLevy / annualNet) : null;
+    var cumulativeNetWithLevy = annualNet * years - capexTotalWithLevy;
+
+    document.getElementById('econCapexTotalNoLevy').textContent = fmt(capexTotal/10000,0) + ' 만원';
+    document.getElementById('econPaybackNoLevy').textContent = paybackYears ? (fmt(paybackYears,1) + ' 년') : '회수불가';
+    document.getElementById('econNetNoLevy').textContent = fmt(cumulativeNet/10000,0) + ' 만원';
+    document.getElementById('econCapexTotalWithLevy').textContent = fmt(capexTotalWithLevy/10000,0) + ' 만원';
+    document.getElementById('econPaybackWithLevy').textContent = paybackYearsWithLevy ? (fmt(paybackYearsWithLevy,1) + ' 년') : '회수불가';
+    document.getElementById('econNetWithLevy').textContent = fmt(cumulativeNetWithLevy/10000,0) + ' 만원';
+
+    levyNote.textContent = lastFarmlandTotal > 0
+      ? ('03번에서 계산된 농지전용부담금 추정 총액 ' + fmt(lastFarmlandTotal/10000,0) + '만원을 총사업비에 더한 경우입니다. 농지가 아니거나 부담금을 별도 예산으로 처리할 경우 "미적용" 값을 기준으로 보세요.')
+      : '추가된 필지 중 농지(전·답·과수원)가 없거나 공시지가를 조회하지 못해, 두 값이 동일하게 표시됩니다. 03번 카드에서 농지가 감지되면 자동으로 반영됩니다.';
     updateGridNote();
   }
   ['econCapex','econSmp','econRecPrice','econRecWeight','econCf','econOm','econYears'].forEach(function(id){
