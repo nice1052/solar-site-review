@@ -99,8 +99,7 @@
     <div class="legend" id="legend">
       <div class="hdr" id="legendHdr"><span>범례</span><span id="legendArrow">▾</span></div>
       <div class="body">
-        <div class="row"><span class="ic x">✕</span><div><b>설치 불가</b><small>국립공원 · 문화유산구역 · 농업진흥구역 · 상수원보호구역</small></div></div>
-        <div class="row"><span class="ic w"></span><div><b>주의 (협의 필요)</b><small>개발제한구역 · 산림보호구역 · 역사문화환경보존지역</small></div></div>
+        <div class="row"><span class="ic x">✕</span><div><b>설치 불가</b><small>국립공원 · 문화유산구역(역사문화환경보존지역·등록문화재 포함) · 농업진흥구역 · 상수원보호구역 · 개발제한구역 · 산림보호구역</small></div></div>
         <div class="row"><span class="ic lb">123 전</span><div><b>그 외 필지</b><small>지번·지목 표시 (초록 = 농지, 농업보호구역은 가능)</small></div></div>
         <div class="tip">🖱️ 지도 우클릭 → 주소 확인·복사</div>
       </div>
@@ -122,11 +121,11 @@
   var ZONE_DEFS = [
     { data:'LT_C_WGISNPGUG', name:function(p){ return '국립공원' + (p.park_name ? ' (' + p.park_name + ')' : ''); }, level:function(){ return 'no'; } },
     { data:'LT_C_UO301', name:function(p){ return p.uname || '문화유산구역'; },
-      level:function(p){ return /역사문화|등록문화재/.test(p.uname || '') ? 'warn' : 'no'; } },
+      level:function(){ return 'no'; } },
     { data:'LT_C_AGRIXUE101', filter:'uname:=:농업진흥구역', name:function(){ return '농업진흥구역'; }, level:function(){ return 'no'; } },
     { data:'LT_C_UM710', name:function(p){ return p.uname || '상수원보호구역'; }, level:function(){ return 'no'; } },
-    { data:'LT_C_UD801', name:function(){ return '개발제한구역'; }, level:function(){ return 'warn'; } },
-    { data:'LT_C_UF151', name:function(p){ return p.uname || '산림보호구역'; }, level:function(){ return 'warn'; } }
+    { data:'LT_C_UD801', name:function(){ return '개발제한구역'; }, level:function(){ return 'no'; } },
+    { data:'LT_C_UF151', name:function(p){ return p.uname || '산림보호구역'; }, level:function(){ return 'no'; } }
   ];
 
   var JIMOK = { '전':'전','답':'답','과':'과수원','목':'목장용지','임':'임야','광':'광천지','염':'염전','대':'대지','장':'공장용지',
