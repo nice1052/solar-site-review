@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>태양광 입지 지도</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root{
+    --ink:#1B231F; --muted:#5C6B62; --accent:#D97F2C; --line:#D9E0D4; --surface:#FFFFFF; --surface-2:#F3F1EA;
+    --no:#E0312B; --warn:#F29A1F; --farm:#3F9142;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif;color:var(--ink);background:var(--surface-2);}
+  .app{display:flex;flex-direction:column;height:100vh;}
+  header{padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:10px;align-items:center;}
+  header h1{font-size:15px;margin:0;white-space:nowrap;}
+  .searchrow{position:relative;display:flex;gap:6px;flex:1 1 320px;min-width:240px;max-width:560px;}
+  .searchrow input{flex:1;font-size:13px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);}
+  .searchrow button{font-size:12.5px;padding:8px 12px;border:1px solid var(--accent);border-radius:8px;background:var(--accent);color:#fff;cursor:pointer;white-space:nowrap;}
+  .searchrow button:hover{opacity:.9;}
+  .toggles{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto;}
+  .toggles label,.toggles button{font-size:12px;padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--ink);cursor:pointer;display:flex;align-items:center;gap:5px;user-select:none;}
+  .toggles button.on{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .toggles input{margin:0;}
+  #dropdown{position:absolute;top:100%;left:0;right:46px;margin-top:4px;background:var(--surface);border:1px solid var(--line);border-radius:8px;max-height:260px;overflow:auto;z-index:1000;box-shadow:0 8px 20px rgba(0,0,0,.12);}
+  #dropdown.hidden{display:none;}
+  #dropdown .item{padding:8px 10px;font-size:12.5px;cursor:pointer;border-bottom:1px solid var(--line);}
+  #dropdown .item:last-child{border-bottom:none;}
+  #dropdown .item:hover{background:var(--surface-2);}
+  #dropdown .item .cat{font-size:10px;color:var(--accent);margin-right:6px;}
+  main{position:relative;flex:1;min-height:0;}
+  #map{position:absolute;inset:0;background:#2b2f2c;}
+  .banner{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:900;background:rgba(255,255,255,.96);border:1px solid var(--line);border-radius:999px;padding:7px 16px;font-size:12.5px;color:var(--ink);box-shadow:0 6px 16px rgba(0,0,0,.18);max-width:min(92vw,560px);text-align:center;pointer-events:none;}
+  .banner.hidden{display:none;}
+  .legend{position:absolute;bottom:16px;left:12px;z-index:900;background:rgba(255,255,255,.97);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:12px;color:var(--ink);line-height:1.5;box-shadow:0 6px 16px rgba(0,0,0,.18);max-width:300px;}
+  .legend .row{display:flex;align-items:flex-start;gap:8px;margin:4px 0;}
+  .legend .row small{display:block;color:var(--muted);font-size:10.5px;}
+  .legend .ic{flex:none;width:20px;text-align:center;font-weight:800;}
+  .legend .x{color:var(--no);font-size:16px;line-height:1.1;}
+  .legend .w{width:16px;height:14px;margin:2px;border:2px dashed var(--warn);background:rgba(242,154,31,.2);border-radius:3px;}
+  .legend .lb{font-size:10.5px;background:rgba(0,0,0,.72);color:#fff;border-radius:4px;padding:0 4px;width:auto;}
+  .legend .tip{border-top:1px solid var(--line);margin-top:6px;padding-top:6px;color:var(--muted);font-size:11px;}
+  .legend .hdr{display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:12.5px;cursor:pointer;}
+  .legend.collapsed .body{display:none;}
+  footer{padding:6px 16px;background:var(--surface);border-top:1px solid var(--line);font-size:10.5px;color:var(--muted);}
+
+  /* 필지 라벨 / X 표시 */
+  .plw{width:0;height:0;}
+  .pl{position:absolute;transform:translate(-50%,-50%);white-space:nowrap;font-size:11px;line-height:1;padding:3px 5px;border-radius:4px;background:rgba(0,0,0,.66);color:#fff;pointer-events:none;display:flex;gap:4px;align-items:center;}
+  .pl b{font-weight:600;}
+  .pl span{font-weight:800;padding:1px 3px;border-radius:3px;background:rgba(255,255,255,.2);}
+  .pl.farm span{background:var(--farm);}
+  .pl.forest span{background:#1f5f35;}
+  .pl.warn{background:rgba(160,90,0,.85);}
+  .px{position:absolute;transform:translate(-50%,-50%);color:var(--no);font-weight:900;line-height:1;pointer-events:none;
+      text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 2px #fff;}
+
+  /* 우클릭 팝업 */
+  .ctx{font-size:12.5px;min-width:250px;}
+  .ctx .line{display:flex;gap:8px;align-items:flex-start;justify-content:space-between;padding:5px 0;border-bottom:1px solid #eee;}
+  .ctx .line:last-child{border-bottom:none;}
+  .ctx .k{color:var(--muted);font-size:11px;display:block;}
+  .ctx .v{font-weight:600;word-break:keep-all;}
+  .ctx button{flex:none;font-size:11px;padding:3px 8px;border:1px solid var(--line);border-radius:6px;background:#fff;cursor:pointer;}
+  .ctx button:hover{background:var(--surface-2);}
+  .ctx .verdict{margin-top:6px;padding:7px 9px;border-radius:8px;font-weight:700;}
+  .ctx .verdict.no{background:#fdecea;color:#a3211b;}
+  .ctx .verdict.warn{background:#fff3e0;color:#9a5800;}
+  .ctx .verdict.ok{background:#e8f5e9;color:#256b29;}
+  .ctx .verdict small{display:block;font-weight:500;margin-top:2px;}
+  @media (max-width:640px){
+    header h1{font-size:13.5px;}
+    .legend{left:8px;bottom:8px;padding:8px 10px;font-size:11px;max-width:240px;}
+    .banner{font-size:11.5px;}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>☀️ 태양광 입지 지도</h1>
+    <div class="searchrow">
+      <input id="addrInput" type="text" placeholder="주소·지번 검색 (예: 태안군 원북면 황촌리 268-7)" autocomplete="off">
+      <button id="searchBtn" type="button">검색</button>
+      <div id="dropdown" class="hidden"></div>
+    </div>
+    <div class="toggles">
+      <button type="button" id="baseSat" class="on">위성</button>
+      <button type="button" id="baseMap">일반</button>
+      <label><input type="checkbox" id="chkZone"> 용도지역 색</label>
+      <label><input type="checkbox" id="chkLabel" checked> 지번·지목</label>
+    </div>
+  </header>
+  <main>
+    <div id="map"></div>
+    <div class="banner" id="banner"></div>
+    <div class="legend" id="legend">
+      <div class="hdr" id="legendHdr"><span>범례</span><span id="legendArrow">▾</span></div>
+      <div class="body">
+        <div class="row"><span class="ic x">✕</span><div><b>설치 불가</b><small>국립공원 · 문화유산구역(역사문화환경보존지역·등록문화재 포함) · 농업진흥구역 · 상수원보호구역 · 개발제한구역 · 산림보호구역</small></div></div>
+        <div class="row"><span class="ic lb">123 전</span><div><b>그 외 필지</b><small>지번·지목 표시 (초록 = 농지, 농업보호구역은 가능)</small></div></div>
+        <div class="tip">🖱️ 지도 우클릭 → 주소 확인·복사</div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    데이터: 브이월드(국토교통부 연속지적도·용도지역지구도, 국립공원·문화유산·농업진흥지역도). 참고용 자료이며 산지 구분·이격거리·조례 등 실제 인허가 여부는 관할 지자체 확인이 필요합니다.
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var VWORLD_KEY = "FF411F7C-F8B2-459F-BD21-F05A32296594";
+  var ZONE_ZOOM = 15;    // 이 줌부터 불가/주의 구역을 불러옴
+  var PARCEL_ZOOM = 17;  // 이 줌부터 필지(지번·지목)를 불러옴
+
+  // 불가/주의 판정 대상 레이어 (브이월드 2D 데이터 API)
+  var ZONE_DEFS = [
+    { data:'LT_C_WGISNPGUG', name:function(p){ return '국립공원' + (p.park_name ? ' (' + p.park_name + ')' : ''); }, level:function(){ return 'no'; } },
+    { data:'LT_C_UO301', name:function(p){ return p.uname || '문화유산구역'; },
+      level:function(){ return 'no'; } },
+    { data:'LT_C_AGRIXUE101', filter:'uname:=:농업진흥구역', name:function(){ return '농업진흥구역'; }, level:function(){ return 'no'; } },
+    { data:'LT_C_UM710', name:function(p){ return p.uname || '상수원보호구역'; }, level:function(){ return 'no'; } },
+    { data:'LT_C_UD801', name:function(){ return '개발제한구역'; }, level:function(){ return 'no'; } },
+    { data:'LT_C_UF151', name:function(p){ return p.uname || '산림보호구역'; }, level:function(){ return 'no'; } }
+  ];
+
+  var JIMOK = { '전':'전','답':'답','과':'과수원','목':'목장용지','임':'임야','광':'광천지','염':'염전','대':'대지','장':'공장용지',
+    '학':'학교용지','차':'주차장','주':'주유소용지','창':'창고용지','도':'도로','철':'철도용지','제':'제방','천':'하천','구':'구거',
+    '유':'유지','양':'양어장','수':'수도용지','공':'공원','체':'체육용지','원':'유원지','종':'종교용지','사':'사적지','묘':'묘지','잡':'잡종지' };
+  var FARM_JIMOK = { '전':1, '답':1, '과':1 };
+
+  // ---------- JSONP (기존 태양광 부지 진단 시스템과 동일 패턴) ----------
+  function jsonp(url, timeoutMs){
+    timeoutMs = timeoutMs || 15000;
+    return new Promise(function(resolve, reject){
+      var cbName = "cb_" + Math.random().toString(36).slice(2) + Date.now();
+      var script = document.createElement('script');
+      var done = false;
+      var timer = setTimeout(function(){ if(done) return; done = true; cleanup(); reject(new Error('timeout')); }, timeoutMs);
+      function cleanup(){ clearTimeout(timer); try{ delete window[cbName]; }catch(e){ window[cbName]=undefined; } if(script.parentNode) script.parentNode.removeChild(script); }
+      window[cbName] = function(data){ if(done) return; done = true; cleanup(); resolve(data); };
+      script.onerror = function(){ if(done) return; done = true; cleanup(); reject(new Error('network')); };
+      script.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'callback=' + cbName;
+      document.head.appendChild(script);
+    });
+  }
+  function vworldSearch(query, category){
+    var url = "https://api.vworld.kr/req/search?service=search&request=search&version=2.0&query=" +
+      encodeURIComponent(query) + "&type=address&category=" + category + "&format=json&size=6&key=" + VWORLD_KEY;
+    return jsonp(url);
+  }
+  function vworldReverse(lat, lon){
+    return jsonp("https://api.vworld.kr/req/address?service=address&request=getAddress&version=2.0&crs=epsg:4326&point=" +
+      lon + "," + lat + "&format=json&type=both&key=" + VWORLD_KEY);
+  }
+  function dataUrl(data, geomFilter, opts){
+    return "https://api.vworld.kr/req/data?service=data&version=2.0&request=GetFeature&format=json&data=" + data +
+      "&geomFilter=" + encodeURIComponent(geomFilter) +
+      (opts.filter ? "&attrFilter=" + encodeURIComponent(opts.filter) : "") +
+      "&size=" + (opts.size || 1000) + "&page=" + (opts.page || 1) +
+      "&geometry=" + (opts.geometry ? 'true' : 'false') + "&attribute=true&crs=EPSG:4326&key=" + VWORLD_KEY;
+  }
+  // 여러 페이지에 걸친 결과를 모두 받아옴 (최대 maxPages)
+  function fetchFeatures(data, geomFilter, opts, maxPages){
+    var all = [];
+    function page(n){
+      return jsonp(dataUrl(data, geomFilter, { filter:opts.filter, geometry:opts.geometry, size:opts.size, page:n })).then(function(res){
+        var r = res && res.response;
+        if(!r || r.status !== 'OK') return { features:all, more:false };
+        var feats = (r.result && r.result.featureCollection && r.result.featureCollection.features) || [];
+        all = all.concat(feats);
+        var totalPages = +((r.page && r.page.total) || 1);
+        if(n < totalPages && n < maxPages) return page(n + 1);
+        return { features:all, more:n < totalPages };
+      });
+    }
+    return page(1);
+  }
+
+  // ---------- 지오메트리 도구 ----------
+  function polysOf(geom){
+    if(!geom) return [];
+    if(geom.type === 'Polygon') return [geom.coordinates];
+    if(geom.type === 'MultiPolygon') return geom.coordinates;
+    return [];
+  }
+  function bboxOf(polys){
+    var b = [Infinity, Infinity, -Infinity, -Infinity];
+    polys.forEach(function(poly){ poly[0].forEach(function(c){
+      if(c[0] < b[0]) b[0] = c[0]; if(c[1] < b[1]) b[1] = c[1];
+      if(c[0] > b[2]) b[2] = c[0]; if(c[1] > b[3]) b[3] = c[1];
+    }); });
+    return b;
+  }
+  function inRing(x, y, ring){
+    var inside = false;
+    for(var i = 0, j = ring.length - 1; i < ring.length; j = i++){
+      var xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+      if(((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  }
+  function inPolys(x, y, polys){
+    for(var p = 0; p < polys.length; p++){
+      var poly = polys[p];
+      if(!inRing(x, y, poly[0])) continue;
+      var hole = false;
+      for(var h = 1; h < poly.length; h++){ if(inRing(x, y, poly[h])){ hole = true; break; } }
+      if(!hole) return true;
+    }
+    return false;
+  }
+  function ringArea(ring){
+    var a = 0;
+    for(var i = 0, j = ring.length - 1; i < ring.length; j = i++) a += (ring[j][0] * ring[i][1] - ring[i][0] * ring[j][1]);
+    return a / 2;
+  }
+  // 필지 안쪽에 확실히 들어가는 대표점 (오목한 필지 대비)
+  function labelPoint(polys){
+    var best = null, bestA = -1;
+    polys.forEach(function(poly){ var a = Math.abs(ringArea(poly[0])); if(a > bestA){ bestA = a; best = poly; } });
+    if(!best) return null;
+    var ring = best[0], a = ringArea(ring), cx = 0, cy = 0;
+    if(a !== 0){
+      for(var i = 0, j = ring.length - 1; i < ring.length; j = i++){
+        var f = ring[j][0] * ring[i][1] - ring[i][0] * ring[j][1];
+        cx += (ring[j][0] + ring[i][0]) * f; cy += (ring[j][1] + ring[i][1]) * f;
+      }
+      cx /= (6 * a); cy /= (6 * a);
+      if(inPolys(cx, cy, [best])) return [cx, cy];
+    }
+    // 무게중심이 밖에 있으면: 가운데 높이의 가로선에서 가장 긴 내부 구간의 중점
+    var bb = bboxOf([best]), y = (bb[1] + bb[3]) / 2, xs = [];
+    best.forEach(function(r){
+      for(var i = 0, j = r.length - 1; i < r.length; j = i++){
+        var yi = r[i][1], yj = r[j][1];
+        if((yi > y) !== (yj > y)) xs.push(r[i][0] + (y - yi) * (r[j][0] - r[i][0]) / (yj - yi));
+      }
+    });
+    xs.sort(function(p, q){ return p - q; });
+    var bx = (bb[0] + bb[2]) / 2, bw = -1;
+    for(var k = 0; k + 1 < xs.length; k += 2){ if(xs[k + 1] - xs[k] > bw){ bw = xs[k + 1] - xs[k]; bx = (xs[k] + xs[k + 1]) / 2; } }
+    return [bx, y];
+  }
+  function toLatLngs(polys){
+    return polys.map(function(poly){ return poly.map(function(r){ return r.map(function(c){ return [c[1], c[0]]; }); }); });
+  }
+  function parseJibun(s){
+    s = String(s || '').trim();
+    var m = s.match(/^(.*?)\s*([가-힣])$/);
+    if(m && JIMOK[m[2]] && m[1]) return { no:m[1].replace(/\s+/g, ''), jimok:m[2] };
+    return { no:s, jimok:'' };
+  }
+  function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+  // ---------- 지도 ----------
+  var map = L.map('map', { preferCanvas:true, zoomControl:true, minZoom:6, maxZoom:19 }).setView([36.3, 127.8], 7);
+  var satLayer = L.layerGroup([
+    L.tileLayer('https://api.vworld.kr/req/wmts/1.0.0/' + VWORLD_KEY + '/Satellite/{z}/{y}/{x}.jpeg', { maxZoom:19, attribution:'© VWorld' }),
+    L.tileLayer('https://api.vworld.kr/req/wmts/1.0.0/' + VWORLD_KEY + '/Hybrid/{z}/{y}/{x}.png', { maxZoom:19 })
+  ]).addTo(map);
+  var baseLayer = L.tileLayer('https://api.vworld.kr/req/wmts/1.0.0/' + VWORLD_KEY + '/Base/{z}/{y}/{x}.png', { maxZoom:19, attribution:'© VWorld' });
+  var zoningWms = L.tileLayer.wms('https://api.vworld.kr/req/wms', {
+    layers:'lt_c_uq111,lt_c_uq112,lt_c_uq114', styles:'lt_c_uq111,lt_c_uq112,lt_c_uq114',
+    format:'image/png', transparent:true, version:'1.3.0', opacity:0.5, key:VWORLD_KEY, minZoom:6
+  });
+
+  var btnSat = document.getElementById('baseSat'), btnMap = document.getElementById('baseMap');
+  function setBase(sat){
+    if(sat){ map.removeLayer(baseLayer); satLayer.addTo(map); } else { map.removeLayer(satLayer); baseLayer.addTo(map); }
+    btnSat.classList.toggle('on', sat); btnMap.classList.toggle('on', !sat);
+    satLayer.eachLayer(function(l){ l.bringToBack(); }); baseLayer.bringToBack();
+  }
+  btnSat.addEventListener('click', function(){ setBase(true); });
+  btnMap.addEventListener('click', function(){ setBase(false); });
+  document.getElementById('chkZone').addEventListener('change', function(e){
+    if(e.target.checked) zoningWms.addTo(map); else map.removeLayer(zoningWms);
+  });
+  var chkLabel = document.getElementById('chkLabel');
+  chkLabel.addEventListener('change', refreshParcelMarks);
+
+  var legend = document.getElementById('legend');
+  document.getElementById('legendHdr').addEventListener('click', function(){
+    legend.classList.toggle('collapsed');
+    document.getElementById('legendArrow').textContent = legend.classList.contains('collapsed') ? '▸' : '▾';
+  });
+
+  // ---------- 상태 배너 ----------
+  var banner = document.getElementById('banner');
+  var loading = { zones:false, parcels:false }, parcelsTruncated = false;
+  function updateBanner(){
+    var z = map.getZoom(), msg = '';
+    if(loading.zones || loading.parcels) msg = '⏳ 불러오는 중…';
+    else if(z < ZONE_ZOOM) msg = '🔍 검색하거나 확대하면 설치 불가 구역이 표시됩니다';
+    else if(z < PARCEL_ZOOM) msg = '🔍 조금 더 확대하면 필지별 지번·지목이 보입니다';
+    else if(parcelsTruncated) msg = '필지가 많아 일부만 표시됐습니다 — 더 확대해보세요';
+    banner.textContent = msg;
+    banner.classList.toggle('hidden', !msg);
+  }
+
+  // ---------- 불가/주의 구역 ----------
+  var zoneGroup = L.featureGroup().addTo(map);
+  var zones = {};   // id -> {level, name, polys, bbox}
+  var zoneGen = 0;
+  var ZONE_STYLE = {
+    no:   { color:'#E0312B', weight:2.5, dashArray:null,  fillColor:'#E0312B', fillOpacity:0.2 },
+    warn: { color:'#F29A1F', weight:2, dashArray:'6 5', fillColor:'#F29A1F', fillOpacity:0.14 }
+  };
+  function viewBox(pad){
+    var b = map.getBounds().pad(pad || 0);
+    return 'BOX(' + b.getWest().toFixed(6) + ',' + b.getSouth().toFixed(6) + ',' + b.getEast().toFixed(6) + ',' + b.getNorth().toFixed(6) + ')';
+  }
+  function loadZones(){
+    if(map.getZoom() < ZONE_ZOOM) return;
+    var gen = ++zoneGen, box = viewBox(0.2);
+    loading.zones = true; updateBanner();
+    Promise.allSettled(ZONE_DEFS.map(function(def){
+      return fetchFeatures(def.data, box, { filter:def.filter, geometry:true }, 3).then(function(res){
+        res.features.forEach(function(f){
+          if(zones[f.id]) return;
+          var polys = polysOf(f.geometry);
+          if(!polys.length) return;
+          var p = f.properties || {};
+          var z = { level:def.level(p), name:def.name(p), polys:polys, bbox:bboxOf(polys) };
+          zones[f.id] = z;
+          L.polygon(toLatLngs(polys), Object.assign({ interactive:true }, ZONE_STYLE[z.level]))
+            .bindTooltip((z.level === 'no' ? '🚫 설치 불가 · ' : '⚠️ 주의 · ') + z.name, { sticky:true })
+            .on('contextmenu', onContext)
+            .addTo(zoneGroup);
+        });
+      });
+    })).then(function(){
+      if(gen !== zoneGen) return;
+      loading.zones = false; updateBanner();
+      classifyAllParcels();
+    });
+  }
+  function zonesAt(x, y){
+    var hits = [];
+    Object.keys(zones).forEach(function(id){
+      var z = zones[id], b = z.bbox;
+      if(x < b[0] || x > b[2] || y < b[1] || y > b[3]) return;
+      if(inPolys(x, y, z.polys)) hits.push(z);
+    });
+    return hits;
+  }
+  function verdictOf(hits){
+    var no = hits.filter(function(z){ return z.level === 'no'; });
+    if(no.length) return { level:'no', names:uniq(no.map(function(z){ return z.name; })) };
+    if(hits.length) return { level:'warn', names:uniq(hits.map(function(z){ return z.name; })) };
+    return { level:'ok', names:[] };
+  }
+  function uniq(a){ var s = {}; return a.filter(function(x){ if(s[x]) return false; s[x] = 1; return true; }); }
+
+  // ---------- 필지 (지번·지목) ----------
+  var parcelGroup = L.featureGroup().addTo(map);
+  var markGroup = L.layerGroup().addTo(map);
+  var parcels = {};   // pnu -> {jb, polys, bbox, pt, poly, mark, verdict}
+  var parcelGen = 0;
+  var PARCEL_STYLE = {
+    ok:   { color:'#ffffff', weight:1, opacity:0.75, fillOpacity:0 },
+    warn: { color:'#F29A1F', weight:1.5, opacity:0.95, fillColor:'#F29A1F', fillOpacity:0.18 },
+    no:   { color:'#E0312B', weight:1.2, opacity:0.9, fillColor:'#E0312B', fillOpacity:0.1 }
+  };
+  function loadParcels(){
+    if(map.getZoom() < PARCEL_ZOOM){ return; }
+    var gen = ++parcelGen, box = viewBox(0.1);
+    loading.parcels = true; updateBanner();
+    fetchFeatures('LP_PA_CBND_BUBUN', box, { geometry:true }, 3).then(function(res){
+      if(gen !== parcelGen) return;
+      if(Object.keys(parcels).length + res.features.length > 6000) clearParcels();
+      parcelsTruncated = res.more;
+      res.features.forEach(function(f){
+        var p = f.properties || {};
+        if(!p.pnu || parcels[p.pnu]) return;
+        var polys = polysOf(f.geometry);
+        if(!polys.length) return;
+        var rec = { jb:parseJibun(p.jibun), addr:p.addr || '', polys:polys, bbox:bboxOf(polys), pt:labelPoint(polys) };
+        rec.poly = L.polygon(toLatLngs(polys), PARCEL_STYLE.ok).on('contextmenu', onContext).addTo(parcelGroup);
+        parcels[p.pnu] = rec;
+        classifyParcel(rec);
+      });
+      refreshParcelMarks();
+    }).catch(function(){}).then(function(){
+      if(gen !== parcelGen) return;
+      loading.parcels = false; updateBanner();
+    });
+  }
+  function clearParcels(){ parcelGroup.clearLayers(); markGroup.clearLayers(); parcels = {}; }
+  function classifyParcel(rec){
+    if(!rec.pt){ rec.verdict = { level:'ok', names:[] }; return; }
+    rec.verdict = verdictOf(zonesAt(rec.pt[0], rec.pt[1]));
+    rec.poly.setStyle(PARCEL_STYLE[rec.verdict.level]);
+  }
+  function classifyAllParcels(){
+    Object.keys(parcels).forEach(function(k){ classifyParcel(parcels[k]); });
+    refreshParcelMarks();
+  }
+  // 줌에 따라 들어갈 자리가 있는 필지에만 라벨/X를 그림 (겹침 방지)
+  function refreshParcelMarks(){
+    markGroup.clearLayers();
+    if(map.getZoom() < PARCEL_ZOOM) return;
+    var showLabels = chkLabel.checked, vb = map.getBounds().pad(0.05);
+    Object.keys(parcels).forEach(function(k){
+      var r = parcels[k];
+      if(!r.pt || !vb.contains([r.pt[1], r.pt[0]])) return;
+      var p1 = map.latLngToLayerPoint([r.bbox[1], r.bbox[0]]), p2 = map.latLngToLayerPoint([r.bbox[3], r.bbox[2]]);
+      var w = Math.abs(p2.x - p1.x), h = Math.abs(p2.y - p1.y);
+      var html;
+      if(r.verdict && r.verdict.level === 'no'){
+        if(Math.min(w, h) < 14) return;
+        var size = Math.max(12, Math.min(28, Math.min(w, h) * 0.5));
+        html = '<div class="px" style="font-size:' + size.toFixed(0) + 'px">✕</div>';
+      } else {
+        if(!showLabels) return;
+        var text = r.jb.no + ' ' + r.jb.jimok;
+        if(w < text.length * 6.5 + 12 || h < 16) return;
+        var cls = 'pl' + (FARM_JIMOK[r.jb.jimok] ? ' farm' : '') + (r.jb.jimok === '임' ? ' forest' : '') + (r.verdict && r.verdict.level === 'warn' ? ' warn' : '');
+        html = '<div class="' + cls + '"><b>' + escapeHtml(r.jb.no) + '</b>' + (r.jb.jimok ? '<span>' + escapeHtml(r.jb.jimok) + '</span>' : '') + '</div>';
+      }
+      L.marker([r.pt[1], r.pt[0]], { icon:L.divIcon({ className:'plw', html:html, iconSize:null }), interactive:false, keyboard:false }).addTo(markGroup);
+    });
+  }
+
+  // ---------- 지도 이동 시 불러오기 ----------
+  var moveTimer = null;
+  map.on('moveend', function(){
+    clearTimeout(moveTimer);
+    moveTimer = setTimeout(function(){
+      var z = map.getZoom();
+      if(z < PARCEL_ZOOM){ parcelGen++; loading.parcels = false; parcelsTruncated = false; clearParcels(); }
+      if(z < ZONE_ZOOM){ zoneGen++; loading.zones = false; }
+      loadZones(); loadParcels(); refreshParcelMarks(); updateBanner();
+    }, 350);
+  });
+  map.on('zoomend', refreshParcelMarks);
+  updateBanner();
+
+  // ---------- 우클릭: 주소 확인·복사 ----------
+  var ctxPopup = L.popup({ maxWidth:340, className:'ctxpop' });
+  var copyStore = [];
+  function copyText(text, btn){
+    function done(){ var old = btn.textContent; btn.textContent = '✔ 복사됨'; setTimeout(function(){ btn.textContent = old; }, 1400); }
+    function fallback(){
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try{ document.execCommand('copy'); done(); }catch(e){}
+      document.body.removeChild(ta);
+    }
+    if(navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, fallback);
+    else fallback();
+  }
+  function line(label, value){
+    if(!value) return '';
+    copyStore.push(value);
+    return '<div class="line"><div><span class="k">' + label + '</span><span class="v">' + escapeHtml(value) + '</span></div>' +
+      '<button type="button" data-copy="' + (copyStore.length - 1) + '">복사</button></div>';
+  }
+  function onContext(e){
+    if(e.originalEvent) e.originalEvent.preventDefault();
+    L.DomEvent.stopPropagation(e);  // 구역·필지 위에서 우클릭해도 한 번만 처리
+    var lat = e.latlng.lat, lon = e.latlng.lng;
+    ctxPopup.setLatLng(e.latlng).setContent('<div class="ctx">주소 확인 중…</div>').openOn(map);
+    var pt = 'POINT(' + lon.toFixed(7) + ' ' + lat.toFixed(7) + ')';
+    Promise.allSettled([
+      vworldReverse(lat, lon),
+      fetchFeatures('LP_PA_CBND_BUBUN', pt, { size:1 }, 1),
+      Promise.allSettled(ZONE_DEFS.map(function(def){
+        return fetchFeatures(def.data, pt, { filter:def.filter, size:10 }, 1).then(function(res){
+          return res.features.map(function(f){ var p = f.properties || {}; return { level:def.level(p), name:def.name(p) }; });
+        });
+      }))
+    ]).then(function(r){
+      var parcelAddr = '', roadAddr = '';
+      if(r[0].status === 'fulfilled' && r[0].value && r[0].value.response && r[0].value.response.status === 'OK'){
+        (r[0].value.response.result || []).forEach(function(it){
+          if(it.type === 'parcel' && !parcelAddr) parcelAddr = it.text;
+          if(it.type === 'road' && !roadAddr) roadAddr = it.text;
+        });
+      }
+      var jimokText = '';
+      if(r[1].status === 'fulfilled' && r[1].value.features.length){
+        var pp = r[1].value.features[0].properties || {};
+        var jb = parseJibun(pp.jibun);
+        if(pp.addr) parcelAddr = pp.addr;
+        if(jb.jimok) jimokText = JIMOK[jb.jimok] + (JIMOK[jb.jimok] !== jb.jimok ? ' (' + jb.jimok + ')' : '');
+      }
+      var hits = [];
+      if(r[2].status === 'fulfilled') r[2].value.forEach(function(x){ if(x.status === 'fulfilled') hits = hits.concat(x.value); });
+      var v = verdictOf(hits);
+      copyStore = [];
+      var html = '<div class="ctx">' +
+        line('지번 주소', parcelAddr) +
+        line('도로명 주소', roadAddr) +
+        (jimokText ? '<div class="line"><div><span class="k">지목</span><span class="v">' + escapeHtml(jimokText) + '</span></div></div>' : '') +
+        line('좌표 (위도, 경도)', lat.toFixed(6) + ', ' + lon.toFixed(6));
+      if(!parcelAddr && !roadAddr) html += '<div class="line"><span class="k">이 위치의 주소를 찾지 못했습니다 (바다·하천 등).</span></div>';
+      if(v.level === 'no') html += '<div class="verdict no">🚫 설치 불가<small>' + escapeHtml(v.names.join(' · ')) + '</small></div>';
+      else if(v.level === 'warn') html += '<div class="verdict warn">⚠️ 주의 (협의 필요)<small>' + escapeHtml(v.names.join(' · ')) + '</small></div>';
+      else html += '<div class="verdict ok">✅ 불가 구역 아님<small>용도지역·이격거리·조례는 부지 진단 시스템에서 확인</small></div>';
+      html += '</div>';
+      ctxPopup.setContent(html);
+    });
+  }
+  map.on('contextmenu', onContext);
+  map.on('popupopen', function(e){
+    var el = e.popup.getElement();
+    if(!el) return;
+    el.addEventListener('click', function(ev){
+      var b = ev.target.closest('button[data-copy]');
+      if(b) copyText(copyStore[+b.getAttribute('data-copy')], b);
+    });
+  });
+
+  // ---------- 주소/지역 검색 ----------
+  var addrInput = document.getElementById('addrInput');
+  var dropdown = document.getElementById('dropdown');
+  var pin = null;
+
+  function goTo(it){
+    var lon = parseFloat(it.point.x), lat = parseFloat(it.point.y);
+    if(pin) map.removeLayer(pin);
+    pin = L.circleMarker([lat, lon], { radius:7, color:'#fff', weight:2, fillColor:'#D97F2C', fillOpacity:1, interactive:false }).addTo(map);
+    map.setView([lat, lon], 18);
+    dropdown.classList.add('hidden');
+    addrInput.value = it.address.parcel || it.address.road || it.text;
+  }
+  function renderDropdown(items){
+    dropdown.innerHTML = items.map(function(it, i){
+      var cat = it.address.category === 'road' ? '도로명' : '지번';
+      return '<div class="item" data-i="'+i+'"><span class="cat">'+cat+'</span>'+escapeHtml(it.address.road || it.address.parcel || it.text)+'</div>';
+    }).join('');
+    dropdown.classList.remove('hidden');
+    dropdown.querySelectorAll('.item').forEach(function(el){
+      el.addEventListener('click', function(){ goTo(items[+el.getAttribute('data-i')]); });
+    });
+  }
+  function doSearch(){
+    var q = addrInput.value.trim();
+    if(!q) return;
+    dropdown.innerHTML = '<div class="item" style="color:var(--muted);cursor:default;">검색 중…</div>';
+    dropdown.classList.remove('hidden');
+    Promise.allSettled([ vworldSearch(q,'parcel'), vworldSearch(q,'road') ]).then(function(results){
+      var items = [], seen = {};
+      results.forEach(function(r){
+        if(r.status !== 'fulfilled') return;
+        var data = r.value;
+        if(!data || !data.response || data.response.status !== 'OK') return;
+        ((data.response.result && data.response.result.items) || []).forEach(function(it){
+          var key = it.id + '|' + it.address.category;
+          if(seen[key]) return;
+          seen[key] = true;
+          items.push(it);
+        });
+      });
+      if(!items.length){
+        dropdown.innerHTML = '<div class="item" style="color:var(--muted);cursor:default;">검색 결과가 없습니다.</div>';
+        return;
+      }
+      if(items.length === 1) goTo(items[0]); else renderDropdown(items);
+    });
+  }
+  document.getElementById('searchBtn').addEventListener('click', doSearch);
+  addrInput.addEventListener('keydown', function(e){ if(e.key === 'Enter'){ e.preventDefault(); doSearch(); } });
+  document.addEventListener('click', function(e){
+    if(!dropdown.contains(e.target) && e.target !== addrInput){ dropdown.classList.add('hidden'); }
+  });
+})();
+</script>
+</body>
+</html>
