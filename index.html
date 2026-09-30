@@ -58,6 +58,9 @@ header.top .logo{width:38px;height:38px;border-radius:11px;flex:none;display:fle
   background:linear-gradient(155deg,var(--accent),color-mix(in srgb, var(--accent) 55%, var(--ink) 30%));
   box-shadow:0 4px 14px color-mix(in srgb, var(--accent) 45%, transparent);}
 header.top h1{font-size:29px;letter-spacing:-0.02em;}
+header.top .navbtn{margin-left:auto;font-size:13px;font-weight:600;padding:8px 14px;border-radius:999px;border:1px solid var(--accent);color:var(--accent);background:transparent;text-decoration:none;white-space:nowrap;}
+header.top .navbtn:hover{background:var(--accent);color:#fff;}
+@media print{header.top .navbtn{display:none;}}
 header.top .titlebar{width:46px;height:4px;border-radius:4px;margin:12px 0 2px;
   background:linear-gradient(90deg,var(--accent),color-mix(in srgb, var(--accent) 25%, transparent));}
 header.top p{color:var(--muted);font-size:13.5px;margin:2px 0 0;max-width:640px;}
@@ -186,7 +189,7 @@ a{color:var(--accent);}
 @media print{
   body{background:#fff!important;color:#111!important;padding:0;}
   .wrap{max-width:100%;}
-  .searchbar, #parcelChips, .hint, #status, #printBar, .dropdown, .clearallbtn, #regionMapCard{display:none!important;}
+  .searchbar, #parcelChips, .hint, #status, #printBar, .dropdown, .clearallbtn{display:none!important;}
   button.btn{display:none!important;}
   a.btn{border:none;padding:0;color:#111;font-weight:700;}
   a.btn[href]::after{content:" → " attr(href);font-size:9px;color:#555;font-weight:400;}
@@ -213,18 +216,11 @@ a{color:var(--accent);}
     <div class="titlerow">
       <span class="logo">☀️</span>
       <h1>태양광 부지 진단 시스템</h1>
+      <a class="navbtn" href="https://nice1052.github.io/solar-land-map/" target="_blank" rel="noopener">🗺️ 입지 지도 보기</a>
     </div>
     <div class="titlebar"></div>
     <p>주소로 필지를 추가하면 지목·용도지역·필지 형상을 확인하고, 모듈 배치 시뮬레이션으로 지상형 설치 최대 용량을 추정합니다. 붙어있는 여러 필지를 추가하면 하나로 합쳐서 계산해요.</p>
   </header>
-
-  <div class="card" id="regionMapCard" style="margin-bottom:18px;">
-    <h3><span class="n">지역탐색</span> 농림지역 제외 용도지역 지도</h3>
-    <p class="desc"><b>색이 칠해진 곳</b>은 도시지역·관리지역·자연환경보전지역이고, <b>흰색(칠해지지 않은 곳)</b>은 농림지역입니다 — 태양광 인허가가 비교적 까다로운 농림지역을 지도에서 뺀 화면입니다. 마우스로 확대·이동해서 살펴보세요. 도 단위 이상으로 축소하면 색이 사라지니, 시/군 단위 정도로 확대해야 표시됩니다.</p>
-    <div id="regionMap" style="height:460px;border-radius:10px;overflow:hidden;background:#eef1ea;"></div>
-    <div class="note">🟨🟧🟪 도시지역 &nbsp;·&nbsp; 🟥(사선) 관리지역 &nbsp;·&nbsp; 🟦(점무늬) 자연환경보전지역 &nbsp;·&nbsp; ⬜ 농림지역(지도에 표시하지 않음)</div>
-    <div class="note">국토교통부 용도지역지구도(브이월드 WMS, lt_c_uq111·lt_c_uq112·lt_c_uq114) 기준 참고용 자료입니다. 실제 세부 지구·지목별 설치 가능 여부는 관할 지자체 확인이 필요합니다.</div>
-  </div>
 
   <div class="searchbar">
     <div class="searchwrap">
@@ -986,30 +982,6 @@ a{color:var(--accent);}
     updateMapModules();
     updateExternalMapLinks();
   }
-
-  // ---------- 지역 탐색: 농림지역 제외 용도지역 지도 (국토교통부 용도지역지구도 WMS, 브이월드) ----------
-  // lt_c_uq111=도시지역, lt_c_uq112=관리지역, lt_c_uq113=농림지역(요청하지 않음 → 제외), lt_c_uq114=자연환경보전지역
-  var regionMap = null;
-  function initRegionMap(){
-    var el = document.getElementById('regionMap');
-    if(!el || typeof L === 'undefined' || regionMap) return;
-    regionMap = L.map(el, { attributionControl:true, zoomControl:true, minZoom:7, maxZoom:19 })
-      .setView([36.3, 127.8], 7);
-    L.tileLayer('https://api.vworld.kr/req/wmts/1.0.0/' + VWORLD_KEY + '/Base/{z}/{y}/{x}.png', {
-      maxZoom: 19, attribution: '© VWorld'
-    }).addTo(regionMap);
-    L.tileLayer.wms('https://api.vworld.kr/req/wms', {
-      layers: 'lt_c_uq111,lt_c_uq112,lt_c_uq114',
-      styles: 'lt_c_uq111,lt_c_uq112,lt_c_uq114',
-      format: 'image/png',
-      transparent: true,
-      version: '1.3.0',
-      opacity: 0.65,
-      KEY: VWORLD_KEY
-    }).addTo(regionMap);
-    setTimeout(function(){ if(regionMap) regionMap.invalidateSize(); }, 80);
-  }
-  initRegionMap();
 
   // ---------- 카카오맵 · 네이버지도 바로가기 (필지 중심 좌표 기준) ----------
   function updateExternalMapLinks(){
