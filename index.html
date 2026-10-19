@@ -355,6 +355,13 @@ a{color:var(--accent);}
               <label>거치 단수</label>
               <select id="stackCount"><option value="1">1단</option><option value="2" selected>2단</option><option value="3">3단</option></select>
             </div>
+            <div class="field">
+              <label>모듈 놓는 방향</label>
+              <select id="moduleOrient">
+                <option value="landscape" selected>가로형 (장변이 옆으로)</option>
+                <option value="portrait">세로형 (장변이 위아래로)</option>
+              </select>
+            </div>
             <div class="field"><label>경사각(°)</label><input id="tiltAngle" type="number" value="30" min="0" max="45"></div>
             <div class="field"><label>경계 이격(m)</label><input id="setbackM" type="number" value="3" min="0" max="20" step="0.5"></div>
             <div class="field"><label>가용면적비율(%)</label><input id="usableRatio" type="number" value="75" min="30" max="100" step="1"></div>
@@ -1048,6 +1055,7 @@ a{color:var(--accent);}
   // (separate from updateMap()'s parcel-boundary layers so tweaking module settings doesn't
   // re-trigger a bounds/zoom reset — it only redraws these lightweight overlay rectangles.)
   var leafletModuleLayers = [];
+  var moduleRenderer = null;  // 모듈 수천 개를 가볍게 그리기 위한 캔버스 렌더러
   function updateMapModules(){
     if(!leafletMap) return;
     leafletModuleLayers.forEach(function(l){ leafletMap.removeLayer(l); });
@@ -1055,10 +1063,11 @@ a{color:var(--accent);}
     var ll = state.lastLayout;
     var lon0 = state.combined.lon0, lat0 = state.combined.lat0;
     if(!ll || !ll.tables || !ll.tables.length || lon0==null || lat0==null) return;
+    if(!moduleRenderer) moduleRenderer = L.canvas({ padding:0.3 });
     ll.tables.forEach(function(t){
       var corners = t.corners || [[t.x0,t.y0],[t.x1,t.y0],[t.x1,t.y1],[t.x0,t.y1]];
       var latlngs = corners.map(function(c){ var ll2 = fromXY(c[0], c[1], lon0, lat0); return [ll2[1], ll2[0]]; });
-      var poly = L.polygon(latlngs, { color:'#2B6CB0', weight:1, fillColor:'#4C8FE0', fillOpacity:0.55 }).addTo(leafletMap);
+      var poly = L.polygon(latlngs, { renderer:moduleRenderer, interactive:false, color:'#2B6CB0', weight:1, fillColor:'#4C8FE0', fillOpacity:0.55 }).addTo(leafletMap);
       leafletModuleLayers.push(poly);
     });
   }
@@ -1351,16 +1360,25 @@ a{color:var(--accent);}
       if(stackSel.value === '1' && lastGeneralStackValue !== '1') stackSel.value = lastGeneralStackValue;
     }
   }
-  ['moduleWatt','moduleLong','moduleShort','stackCount','tiltAngle','setbackM','usableRatio'].forEach(function(id){
-    document.getElementById(id).addEventListener('input', runSimulation);
+  // 숫자를 지우고 다시 입력하는 도중(예: 2465를 치는 중 "2")에도 매 글자마다 계산하면
+  // 2mm짜리 모듈로 수백만 개를 배치하려다 멈추므로, 입력이 잠시 멈춘 뒤에만 계산한다.
+  var simTimer = null;
+  function scheduleSimulation(){ clearTimeout(simTimer); simTimer = setTimeout(runSimulation, 400); }
+  ['moduleWatt','moduleLong','moduleShort','tiltAngle','setbackM','usableRatio'].forEach(function(id){
+    document.getElementById(id).addEventListener('input', scheduleSimulation);
+  });
+  ['stackCount','moduleOrient'].forEach(function(id){
+    document.getElementById(id).addEventListener('change', runSimulation);
   });
 
   // Lay out individual mounting tables (each holding `stack` modules) one by one, keeping
   // only tables whose full footprint (all 4 corners) lies inside AT LEAST ONE of the added
   // parcels' polygons — which is exactly the combined ("합쳐진") owned area, without needing
   // to compute a merged polygon outline first.
+  var MAX_TABLES = 60000;  // 비정상 입력으로 브라우저가 멈추지 않도록 하는 안전 상한
   function buildLayout(rotatedPolys, rect, spec, pitch, tableDepth, longM){
     var EPS = 0.01;
+    if(!(longM > 0.2) || !(tableDepth > 0.05) || !(pitch > 0.05)) return { tables: [], uMinX:0, uMaxX:0, uMinY:0, uMaxY:0 };
     var uMinX = rect.minX + spec.setback, uMaxX = rect.maxX - spec.setback;
     var uMinY = rect.minY + spec.setback, uMaxY = rect.maxY - spec.setback;
     var tables = [];
@@ -1375,6 +1393,7 @@ a{color:var(--accent);}
           for(var k=0;k<4;k++){ if(!pointInAny(corners[k], rotatedPolys)){ ok=false; break; } }
           if(ok) tables.push({x0:x0,y0:y0,x1:x1,y1:y1});
         }
+        if(tables.length > MAX_TABLES) break;
       }
     }
     return { tables: tables, uMinX:uMinX, uMaxX:uMaxX, uMinY:uMinY, uMaxY:uMaxY };
@@ -1489,6 +1508,14 @@ a{color:var(--accent);}
     }
     var spec = currentModuleSpec();
     var longM = spec.longMm/1000, shortM = spec.shortMm/1000;
+    if(spec.longMm < 300 || spec.shortMm < 300 || spec.longMm > 5000 || spec.shortMm > 5000){
+      note.textContent = '모듈 장변·단변은 300~5000mm 범위로 입력해 주세요. (예: 2465 × 1134)';
+      return;
+    }
+    // 모듈 놓는 방향: 가로형 = 장변이 줄 방향(옆으로 눕힘), 세로형 = 장변이 경사 방향(세워서 놓음)
+    var portrait = document.getElementById('moduleOrient').value === 'portrait';
+    var rowLenM = portrait ? shortM : longM;      // 줄 방향으로 모듈 1장이 차지하는 길이
+    var slopeLenM = portrait ? longM : shortM;    // 경사 방향 모듈 1장 길이
     var tiltRad = spec.tiltDeg * Math.PI/180;
 
     var lat = Math.abs(state.combined.lat0 || 36);
@@ -1497,8 +1524,8 @@ a{color:var(--accent);}
     if(sunAltDeg < 5) sunAltDeg = 5;
     var sunAltRad = sunAltDeg * Math.PI/180;
 
-    var tableDepth = spec.stack * shortM * Math.cos(tiltRad);
-    var tableRise = spec.stack * shortM * Math.sin(tiltRad);
+    var tableDepth = spec.stack * slopeLenM * Math.cos(tiltRad);
+    var tableRise = spec.stack * slopeLenM * Math.sin(tiltRad);
     var shadingPitch = tableDepth + (tableRise / Math.tan(sunAltRad));
 
     // 영농형 태양광: 차광률(GCR = tableDepth/pitch)이 30%를 넘지 않도록 행간을 추가로 넓힘.
@@ -1521,7 +1548,7 @@ a{color:var(--accent);}
     groups.forEach(function(g){
       var th = g.az * Math.PI/180;
       var framePolys = g.parcels.map(function(p){ return p.projected.map(function(pt){ return toFrame(pt, th); }); });
-      var layout = buildLayout(framePolys, bboxRect(framePolys), spec, pitch, tableDepth, longM);
+      var layout = buildLayout(framePolys, bboxRect(framePolys), spec, pitch, tableDepth, rowLenM);
       layout.tables.forEach(function(t){
         t.corners = [[t.x0,t.y0],[t.x1,t.y0],[t.x1,t.y1],[t.x0,t.y1]].map(function(c){ return fromFrame(c, th); });
         allTables.push(t);
@@ -1549,7 +1576,7 @@ a{color:var(--accent);}
     note.textContent = (nParcels>1 ? (perParcel ? (nParcels+'개 필지에 각각 따로 배치했습니다. ') : (nParcels+'개 필지를 하나로 합쳐 계산했습니다. ')) : '') +
       (perParcel ? '모듈 방향은 필지별 설정을 따릅니다. ' : '모듈 방향: ' + azimuthText(globalAz) + '. ') +
       (globalAz !== 0 || perParcel ? '행간은 정남 기준으로 계산해 방향을 틀어도 그늘 여유가 줄지 않도록 했습니다. ' : '') +
-      '설계 기준: 위도 ' + lat.toFixed(2) + '°N 동지 태양고도 ' + sunAltDeg.toFixed(1) + '°에서 앞줄 그늘이 뒷줄에 닿지 않도록 행간(pitch) ' + pitch.toFixed(2) + 'm 적용(경사각이 커질수록 그늘이 길어져 행간도 늘어납니다). 각 테이블(가로 ' + longM.toFixed(2) + 'm × 세로 ' + tableDepth.toFixed(2) + 'm, ' + spec.stack + '단 모듈 ' + spec.stack + '매 탑재)의 네 꼭짓점이 추가된 필지들 중 하나에라도 들어가는지 하나씩 검사해 배치했습니다(필지 경계선이 서로 붙어있으면 그 경계를 넘어서도 배치됩니다). 면적기준 참고치는 가용면적비율 ' + spec.usableRatioPct + '%만 적용한 단순 상한값입니다.' +
+      '설계 기준: 위도 ' + lat.toFixed(2) + '°N 동지 태양고도 ' + sunAltDeg.toFixed(1) + '°에서 앞줄 그늘이 뒷줄에 닿지 않도록 행간(pitch) ' + pitch.toFixed(2) + 'm 적용(경사각이 커질수록 그늘이 길어져 행간도 늘어납니다). 각 테이블(' + (portrait ? '세로형' : '가로형') + ', 가로 ' + rowLenM.toFixed(2) + 'm × 세로 ' + tableDepth.toFixed(2) + 'm, ' + spec.stack + '단 모듈 ' + spec.stack + '매 탑재)의 네 꼭짓점이 추가된 필지들 중 하나에라도 들어가는지 하나씩 검사해 배치했습니다(필지 경계선이 서로 붙어있으면 그 경계를 넘어서도 배치됩니다). 면적기준 참고치는 가용면적비율 ' + spec.usableRatioPct + '%만 적용한 단순 상한값입니다.' +
       (spec.isAgri ? ' 영농형 태양광은 1단 고정 + 차광률(GCR) 30% 이내를 만족하도록 행간을 자동으로 넓혀 계산했습니다(현재 ' + gcrPct.toFixed(1) + '%).' : '');
 
     state.lastLayout = { tables: allTables };
@@ -1985,7 +2012,7 @@ a{color:var(--accent);}
     pptxSub(s3, '1. 모듈 사양 · 배치 결과', y3); y3 += 0.45;
     y3 += pptxTable(s3, [
       ['정격출력','장변','단변','거치 단수','경사각','경계 이격','모듈 방향'],
-      [val('moduleWatt')+'W', val('moduleLong')+'mm', val('moduleShort')+'mm', val('stackCount')+'단', val('tiltAngle')+'°', val('setbackM')+'m',
+      [val('moduleWatt')+'W', val('moduleLong')+'mm', val('moduleShort')+'mm', val('stackCount')+'단 · ' + (val('moduleOrient') === 'portrait' ? '세로형' : '가로형'), val('tiltAngle')+'°', val('setbackM')+'m',
        document.getElementById('layoutMode').value === 'perParcel' ? '필지별' : azimuthText(currentAzimuth())],
     ], MX, y3, CW, { rowH:0.42, fontSize:10.5 }) + 0.25;
     y3 += pptxTable(s3, [
