@@ -170,6 +170,11 @@ table.zonelist tr.totalrow td{font-weight:700;border-top:1.5px solid var(--accen
 .azrow .azend{font-size:11px;color:var(--muted);}
 .azrow .azlbl{font-size:12.5px;font-weight:700;color:var(--accent);min-width:64px;}
 .azrow .azreset{font-size:11.5px;padding:5px 10px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;}
+.roofctl{grid-template-columns:2fr 1fr;}
+.layoutctl.hidden{display:none;}
+.field label.chk{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink);padding:6px 0;cursor:pointer;}
+.field label.chk input{width:16px;height:16px;accent-color:var(--accent);}
+.azrow.locked{opacity:.45;pointer-events:none;}
 .parcellayout{margin-bottom:14px;}
 .parcellayout td input[type=number]{width:70px;font-family:var(--mono);font-size:12.5px;padding:4px 6px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);}
 .parcellayout td input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);}
@@ -337,6 +342,7 @@ a{color:var(--accent);}
               <select id="facilityType">
                 <option value="general" selected>일반 태양광</option>
                 <option value="agrivoltaic">영농형 태양광 (농지 병행)</option>
+                <option value="roof">지붕 태양광 (건물 지붕)</option>
               </select>
             </div>
             <div class="field">
@@ -385,6 +391,19 @@ a{color:var(--accent);}
                 <option value="combined" selected>여러 필지를 합쳐서 배치</option>
                 <option value="perParcel">필지마다 따로 배치</option>
               </select>
+            </div>
+          </div>
+          <div class="layoutctl roofctl hidden" id="roofCtl">
+            <div class="field">
+              <label>지붕 형태</label>
+              <select id="roofType">
+                <option value="flat" selected>평지붕 — 거치대로 경사 설치 (앞뒤 그늘 간격 확보)</option>
+                <option value="pitched">경사·패널 지붕 — 지붕에 붙여 촘촘히 (경사각 = 지붕 기울기)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>모듈 줄 방향</label>
+              <label class="chk"><input type="checkbox" id="roofAutoAlign" checked> 건물 모양에 맞춰 자동 정렬</label>
             </div>
           </div>
           <div class="parcellayout hidden" id="parcelLayoutWrap">
@@ -1062,8 +1081,19 @@ a{color:var(--accent);}
     leafletModuleLayers = [];
     var ll = state.lastLayout;
     var lon0 = state.combined.lon0, lat0 = state.combined.lat0;
-    if(!ll || !ll.tables || !ll.tables.length || lon0==null || lat0==null) return;
     if(!moduleRenderer) moduleRenderer = L.canvas({ padding:0.3 });
+    // 지붕 태양광: 인식한 건물(지붕) 외곽선을 하늘색으로 표시
+    if(document.getElementById('facilityType').value === 'roof'){
+      state.parcels.forEach(function(p){
+        if(p.layoutOn === false) return;
+        (p.buildings || []).forEach(function(b){
+          var bl = L.polygon(b.ll.map(function(pt){ return [pt[1], pt[0]]; }),
+            { renderer:moduleRenderer, interactive:false, color:'#22D3EE', weight:2, dashArray:'5 4', fill:false }).addTo(leafletMap);
+          leafletModuleLayers.push(bl);
+        });
+      });
+    }
+    if(!ll || !ll.tables || !ll.tables.length || lon0==null || lat0==null) return;
     ll.tables.forEach(function(t){
       var corners = t.corners || [[t.x0,t.y0],[t.x1,t.y0],[t.x1,t.y1],[t.x0,t.y1]];
       var latlngs = corners.map(function(c){ var ll2 = fromXY(c[0], c[1], lon0, lat0); return [ll2[1], ll2[0]]; });
@@ -1331,7 +1361,8 @@ a{color:var(--accent);}
       tiltDeg: parseFloat(document.getElementById('tiltAngle').value) || 30,
       setback: parseFloat(document.getElementById('setbackM').value) || 3,
       usableRatioPct: parseFloat(document.getElementById('usableRatio').value) || 75,
-      isAgri: isAgri
+      isAgri: isAgri,
+      isRoof: document.getElementById('facilityType').value === 'roof'
     };
   }
 
@@ -1436,6 +1467,50 @@ a{color:var(--accent);}
   document.getElementById('azimuthReset').addEventListener('click', function(){ setAzimuth(0); });
   document.getElementById('layoutMode').addEventListener('change', runSimulation);
 
+  // ---------- 지붕 태양광: 필지 안 건물 외곽선 (브이월드 건물통합정보 LT_C_BLDGINFO) ----------
+  var buildingsLoading = false;
+  function loadBuildings(){
+    if(buildingsLoading) return;
+    var todo = state.parcels.filter(function(p){ return p.projected && p.buildings === undefined && p.polygonPtsLonLat; });
+    if(!todo.length) return;
+    buildingsLoading = true;
+    Promise.all(todo.map(function(p){
+      var ring = p.polygonPtsLonLat, b = [Infinity, Infinity, -Infinity, -Infinity];
+      ring.forEach(function(pt){ b[0]=Math.min(b[0],pt[0]); b[1]=Math.min(b[1],pt[1]); b[2]=Math.max(b[2],pt[0]); b[3]=Math.max(b[3],pt[1]); });
+      var url = "https://api.vworld.kr/req/data?service=data&version=2.0&request=GetFeature&format=json&data=LT_C_BLDGINFO" +
+        "&geomFilter=" + encodeURIComponent('BOX(' + b.join(',') + ')') + "&size=1000&geometry=true&attribute=true&crs=EPSG:4326&key=" + VWORLD_KEY;
+      return jsonp(url).then(function(res){
+        var feats = (res && res.response && res.response.status === 'OK' && res.response.result.featureCollection.features) || [];
+        var list = [];
+        feats.forEach(function(f){
+          var g = f.geometry; if(!g) return;
+          var polys = g.type === 'MultiPolygon' ? g.coordinates : (g.type === 'Polygon' ? [g.coordinates] : []);
+          polys.forEach(function(poly){
+            var outer = poly[0];
+            if(!outer || outer.length < 4) return;
+            // 건물 중심이 이 필지 안에 있는 건물만 (옆 필지 건물 제외)
+            var cx = 0, cy = 0; outer.forEach(function(pt){ cx += pt[0]; cy += pt[1]; });
+            cx /= outer.length; cy /= outer.length;
+            if(!pointInPolygon([cx, cy], ring)) return;
+            var areaM2 = polygonAreaXY(outer.map(function(pt){ return toXY(pt[0], pt[1], cx, cy); }));
+            if(areaM2 < 20) return;   // 창고·화장실 같은 아주 작은 구조물 제외
+            list.push({ ll:outer, name:(f.properties && f.properties.bld_nm) || '', areaM2:areaM2 });
+          });
+        });
+        p.buildings = list;
+      }).catch(function(){ p.buildings = []; });
+    })).then(function(){ buildingsLoading = false; runSimulation(); updateMapModules(); });
+  }
+  // 건물 긴 변 방향으로 모듈 줄을 맞추는 방위각 (정남 기준 −90~+90°)
+  function buildingAzimuth(proj){
+    var r = minAreaRect(convexHull(proj));
+    var alpha = r.angle + (r.h > r.w ? Math.PI/2 : 0);
+    var az = -alpha * 180/Math.PI;
+    while(az > 90) az -= 180;
+    while(az < -90) az += 180;
+    return Math.round(az);
+  }
+
   // ---------- 필지별 배치 표 ----------
   function shortParcelName(p){
     var parts = String(p.addressText || p.pnu).split(' ');
@@ -1533,27 +1608,50 @@ a{color:var(--accent);}
     // 이격(행간)이 경사각에 따라 달라진다 — 위 shadingPitch 계산식 자체가 tiltRad에 종속적임.
     var gcrMinPitch = spec.isAgri ? (tableDepth / GCR_MAX_AGRIVOLTAIC) : 0;
     var pitch = Math.max(shadingPitch, gcrMinPitch);
+    // 경사·패널 지붕: 지붕면에 붙여 설치하므로 앞뒤 그늘 간격 없이 촘촘히 (줄 사이 5cm)
+    var roofPitched = spec.isRoof && document.getElementById('roofType').value === 'pitched';
+    if(roofPitched) pitch = tableDepth + 0.05;
     var gcrPct = pitch>0 ? (tableDepth/pitch*100) : 0;
 
     // 배치 대상 필지 묶음: 합쳐서 배치 → 한 묶음(공통 방향), 필지마다 → 필지별 묶음(필지별 방향)
     var globalAz = currentAzimuth();
     var perParcel = document.getElementById('layoutMode').value === 'perParcel';
     var active = state.parcels.filter(function(p){ return p.projected && p.projected.length>=3 && p.layoutOn !== false; });
-    var groups = perParcel
-      ? active.map(function(p){ return { parcels:[p], az:(p.azimuth == null ? globalAz : p.azimuth) }; })
-      : (active.length ? [{ parcels:active, az:globalAz }] : []);
+    var groups, roofCount = 0, roofAreaM2 = 0;
+    if(spec.isRoof){
+      // 지붕 태양광: 필지 안의 건물 외곽선(지붕)마다 따로 배치 — 모듈이 지붕 밖으로 나가지 않음
+      if(state.parcels.some(function(p){ return p.projected && p.buildings === undefined; })){
+        loadBuildings();
+        note.textContent = '🏠 필지 안의 건물(지붕) 정보를 불러오는 중입니다…';
+        return;
+      }
+      var autoAlign = document.getElementById('roofAutoAlign').checked;
+      groups = [];
+      active.forEach(function(p){
+        (p.buildings || []).forEach(function(b){
+          var proj = b.ll.map(function(pt){ return toXY(pt[0], pt[1], state.combined.lon0, state.combined.lat0); });
+          var az = autoAlign ? buildingAzimuth(proj) : (perParcel && p.azimuth != null ? p.azimuth : globalAz);
+          roofCount++; roofAreaM2 += polygonAreaXY(proj);
+          groups.push({ polys:[proj], az:az, owner:p });
+        });
+      });
+    } else {
+      groups = perParcel
+        ? active.map(function(p){ return { polys:[p.projected], az:(p.azimuth == null ? globalAz : p.azimuth), owner:p }; })
+        : (active.length ? [{ polys:active.map(function(p){ return p.projected; }), az:globalAz, owner:null }] : []);
+    }
 
     var allTables = [];
     state.parcels.forEach(function(p){ p.layoutTables = 0; });
     groups.forEach(function(g){
       var th = g.az * Math.PI/180;
-      var framePolys = g.parcels.map(function(p){ return p.projected.map(function(pt){ return toFrame(pt, th); }); });
+      var framePolys = g.polys.map(function(poly){ return poly.map(function(pt){ return toFrame(pt, th); }); });
       var layout = buildLayout(framePolys, bboxRect(framePolys), spec, pitch, tableDepth, rowLenM);
       layout.tables.forEach(function(t){
         t.corners = [[t.x0,t.y0],[t.x1,t.y0],[t.x1,t.y1],[t.x0,t.y1]].map(function(c){ return fromFrame(c, th); });
         allTables.push(t);
       });
-      if(perParcel) g.parcels[0].layoutTables = layout.tables.length;
+      if(g.owner) g.owner.layoutTables += layout.tables.length;
     });
     renderParcelLayoutTable(perParcel, globalAz, spec);
 
@@ -1561,7 +1659,7 @@ a{color:var(--accent);}
     var layoutModules = tableCount * spec.stack;
 
     var moduleAreaEach = longM * shortM;
-    var totalAreaM2 = active.reduce(function(s,p){ return s + (p.areaM2||0); }, 0);
+    var totalAreaM2 = spec.isRoof ? roofAreaM2 : active.reduce(function(s,p){ return s + (p.areaM2||0); }, 0);
     var areaBasedModules = moduleAreaEach>0 ? Math.floor((totalAreaM2 * (spec.usableRatioPct/100)) / moduleAreaEach) : 0;
 
     var capacityKw = (layoutModules * spec.watt) / 1000;
@@ -1573,7 +1671,16 @@ a{color:var(--accent);}
     document.getElementById('resGcr').textContent = fmt(gcrPct,1) + '%' + (spec.isAgri ? (gcrPct>30.5?' (30% 초과 — 확인필요)':' (30% 이내)') : '');
 
     var nParcels = active.length;
-    note.textContent = (nParcels>1 ? (perParcel ? (nParcels+'개 필지에 각각 따로 배치했습니다. ') : (nParcels+'개 필지를 하나로 합쳐 계산했습니다. ')) : '') +
+    if(spec.isRoof){
+      note.textContent = roofCount
+        ? ('🏠 지붕 태양광: 필지 안 건물 ' + roofCount + '개 동(지붕 면적 합 ' + fmt(roofAreaM2,0) + '㎡, 약 ' + fmt(pyeong(roofAreaM2),0) + '평)의 외곽선 안에만 배치했습니다. ' +
+           '지붕 가장자리에서 ' + spec.setback + 'm 띄웠고, ' +
+           (roofPitched ? '경사·패널 지붕이라 지붕면에 붙여 앞뒤 간격 없이 배치했습니다(경사각 ' + spec.tiltDeg + '° = 지붕 기울기로 계산). '
+                        : '평지붕이라 거치대로 ' + spec.tiltDeg + '° 세우고 동지 기준 앞줄 그늘이 닿지 않게 행간 ' + pitch.toFixed(2) + 'm를 두었습니다. ') +
+           (document.getElementById('roofAutoAlign').checked ? '모듈 줄은 건물마다 긴 변 방향에 맞췄습니다. ' : '모듈 방향: ' + azimuthText(globalAz) + '. ') +
+           '건물 외곽선은 국토부 건물통합정보 기준이라 실제 지붕(처마·옥탑·설비·채광창)과 다를 수 있으니 현장 확인이 필요합니다. 면적기준 참고치는 지붕 면적 × 가용면적비율 ' + spec.usableRatioPct + '%입니다.')
+        : '🏠 추가한 필지 안에서 건물(지붕) 외곽선을 찾지 못했습니다. 건물이 있는 필지인지 확인하거나, 건물이 최근에 지어져 아직 자료에 없을 수 있습니다.';
+    } else note.textContent = (nParcels>1 ? (perParcel ? (nParcels+'개 필지에 각각 따로 배치했습니다. ') : (nParcels+'개 필지를 하나로 합쳐 계산했습니다. ')) : '') +
       (perParcel ? '모듈 방향은 필지별 설정을 따릅니다. ' : '모듈 방향: ' + azimuthText(globalAz) + '. ') +
       (globalAz !== 0 || perParcel ? '행간은 정남 기준으로 계산해 방향을 틀어도 그늘 여유가 줄지 않도록 했습니다. ' : '') +
       '설계 기준: 위도 ' + lat.toFixed(2) + '°N 동지 태양고도 ' + sunAltDeg.toFixed(1) + '°에서 앞줄 그늘이 뒷줄에 닿지 않도록 행간(pitch) ' + pitch.toFixed(2) + 'm 적용(경사각이 커질수록 그늘이 길어져 행간도 늘어납니다). 각 테이블(' + (portrait ? '세로형' : '가로형') + ', 가로 ' + rowLenM.toFixed(2) + 'm × 세로 ' + tableDepth.toFixed(2) + 'm, ' + spec.stack + '단 모듈 ' + spec.stack + '매 탑재)의 네 꼭짓점이 추가된 필지들 중 하나에라도 들어가는지 하나씩 검사해 배치했습니다(필지 경계선이 서로 붙어있으면 그 경계를 넘어서도 배치됩니다). 면적기준 참고치는 가용면적비율 ' + spec.usableRatioPct + '%만 적용한 단순 상한값입니다.' +
@@ -1679,18 +1786,39 @@ a{color:var(--accent);}
 
   // ---------- 설비 구분(일반/영농형) 안내 ----------
   var AGRIVOLTAIC_NOTE = '영농형 태양광은 농지 위에서 영농과 태양광 발전을 병행하는 방식입니다. 2026.6.16 제정 · 2026.12.17 시행되는 「영농형 태양광 발전사업의 활성화 및 지원에 관한 법률」(영농형태양광특별법)에 따라 농업인·주민참여협동조합·농업법인만 사업권을 가지며, 사업구역은 원칙적으로 농업진흥지역 밖 농지로 한정됩니다. 사업기간은 최초 5년+연장 18년, 최대 23년까지 가능하고(기존 농지법상 일시사용허가 8년보다 확대), 임차농 보호를 위한 계약갱신 의무·임대료 인상 5% 상한이 적용됩니다. 모듈 면적비(차광률) 30% 미만 기준에 맞춰 이 도구는 거치 단수를 1단으로 고정하고 행간을 자동으로 넓혀 계산합니다 — 세부 기술기준은 하위법령 확정에 따라 달라질 수 있습니다.';
-  var CAPEX_BY_TYPE = { general: 1300000, agrivoltaic: 1600000 };
+  var CAPEX_BY_TYPE = { general: 1300000, agrivoltaic: 1600000, roof: 1300000 };
+  var ROOF_NOTE = '지붕 태양광은 필지 안 건물의 지붕(건물 외곽선)에만 모듈을 배치합니다. 건축물 등 기존 시설물을 이용하는 태양광은 REC 가중치가 지상형보다 높게(3MW 이하 1.5) 적용되어 가중치를 1.5로 바꿔두었습니다 — 최신 고시값을 확인하세요. 지붕 하중(구조 안전진단)·방수·건물주 동의가 별도로 필요하고, 농지전용부담금은 해당하지 않습니다.';
+  var lastGroundSetback = null;
+  function syncRoofControls(){
+    var isRoof = document.getElementById('facilityType').value === 'roof';
+    document.getElementById('roofCtl').classList.toggle('hidden', !isRoof);
+    var locked = isRoof && document.getElementById('roofAutoAlign').checked;
+    document.querySelector('.azrow').classList.toggle('locked', locked);
+  }
   function updateFacilityTypeNote(){
     var type = document.getElementById('facilityType').value;
-    document.getElementById('facilityTypeNote').textContent = type === 'agrivoltaic' ? ('🌱 영농형 태양광 선택됨 — ' + AGRIVOLTAIC_NOTE) : '';
+    document.getElementById('facilityTypeNote').textContent = type === 'agrivoltaic' ? ('🌱 영농형 태양광 선택됨 — ' + AGRIVOLTAIC_NOTE)
+      : (type === 'roof' ? ('🏠 지붕 태양광 선택됨 — ' + ROOF_NOTE) : '');
     var econCapexEl = document.getElementById('econCapex');
     if(CAPEX_BY_TYPE.hasOwnProperty(type)){
       econCapexEl.value = CAPEX_BY_TYPE[type];
     }
+    // 지붕은 가장자리 이격이 작음(기본 1m), 지상형으로 돌아가면 원래 값 복원
+    var setbackEl = document.getElementById('setbackM');
+    if(type === 'roof'){
+      if(lastGroundSetback === null){ lastGroundSetback = setbackEl.value; setbackEl.value = 1; }
+      document.getElementById('econRecWeight').value = 1.5;
+    } else if(lastGroundSetback !== null){
+      setbackEl.value = lastGroundSetback; lastGroundSetback = null;
+      document.getElementById('econRecWeight').value = 1.0;
+    }
+    syncRoofControls();
     syncStackCountLock();
     runSimulation(); // stack lock + GCR constraint + capex default all feed back into the layout/economics
   }
   document.getElementById('facilityType').addEventListener('change', updateFacilityTypeNote);
+  document.getElementById('roofType').addEventListener('change', runSimulation);
+  document.getElementById('roofAutoAlign').addEventListener('change', function(){ syncRoofControls(); runSimulation(); });
   syncStackCountLock();
 
   // ---------- copy buttons ----------
@@ -2007,7 +2135,8 @@ a{color:var(--accent);}
     pptxTitle(s3, 'Ⅲ', '설비 설계 및 경제성 분석');
     var y3 = 1.15;
     var facilityType = document.getElementById('facilityType').value;
-    var facilityLabel = facilityType === 'agrivoltaic' ? '영농형 태양광 (1단 고정 · GCR≤30% · 사업기간 최대 23년)' : '일반 태양광';
+    var facilityLabel = facilityType === 'agrivoltaic' ? '영농형 태양광 (1단 고정 · GCR≤30% · 사업기간 최대 23년)'
+      : (facilityType === 'roof' ? '지붕 태양광 (건물 지붕 · ' + selectedOptionText('roofType').split(' —')[0] + ')' : '일반 태양광');
     pptxBadge(s3, '설비 구분 — ' + facilityLabel, PPT.ACCENT, y3); y3 += 0.75;
     pptxSub(s3, '1. 모듈 사양 · 배치 결과', y3); y3 += 0.45;
     y3 += pptxTable(s3, [
@@ -2117,7 +2246,7 @@ a{color:var(--accent);}
     var teamSetbackLabel = teamSetbackSel === 'ok' ? '충족(가능)' : (teamSetbackSel === 'fail' ? '미충족(불가능)' : '확인전');
     var teamGridSel = document.getElementById('gridAvailable').value;
     var teamGridLabel = teamGridSel === 'yes' ? '가능' : (teamGridSel === 'no' ? '불가능' : '확인전');
-    var teamFacilityLabel = document.getElementById('facilityType').value === 'agrivoltaic' ? '영농형' : '일반';
+    var teamFacilityLabel = { agrivoltaic:'영농형', roof:'지붕' }[document.getElementById('facilityType').value] || '일반';
     var teamPayload = {
       name: teamLogName,
       address: state.parcels.map(function(p){ return p.addressText; }).join(' / '),
