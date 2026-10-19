@@ -162,6 +162,18 @@ table.zonelist tr.totalrow td{font-weight:700;border-top:1.5px solid var(--accen
 .maplabel{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;}
 .maplabel .lbl{font-size:11px;color:var(--muted);letter-spacing:.02em;}
 .maplabel .src{font-size:10px;color:var(--muted);}
+.layoutctl{display:grid;grid-template-columns:2fr 1fr;gap:10px;margin:-4px 0 14px;padding:12px;background:var(--surface-2);border-radius:10px;}
+@media (max-width:760px){.layoutctl{grid-template-columns:1fr;}}
+.azrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.azrow input[type=range]{flex:1;min-width:140px;accent-color:var(--accent);padding:0;border:none;background:transparent;}
+.azrow input[type=number]{width:72px;flex:none;}
+.azrow .azend{font-size:11px;color:var(--muted);}
+.azrow .azlbl{font-size:12.5px;font-weight:700;color:var(--accent);min-width:64px;}
+.azrow .azreset{font-size:11.5px;padding:5px 10px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;}
+.parcellayout{margin-bottom:14px;}
+.parcellayout td input[type=number]{width:70px;font-family:var(--mono);font-size:12.5px;padding:4px 6px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);}
+.parcellayout td input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);}
+.parcellayout tr.off td{opacity:.45;}
 .simresult{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;}
 .simresult .box{flex:1;min-width:150px;background:var(--surface-2);border-radius:10px;padding:10px 12px;}
 .simresult .box .lbl{font-size:11px;color:var(--muted);}
@@ -310,7 +322,7 @@ a{color:var(--accent);}
 
         <div class="card">
           <h3><span class="n">04</span> 필지 형상 · 모듈 배치 시뮬레이션</h3>
-          <p class="desc">추가한 모든 필지를 하나로 합쳐, 필지 경계 안에 실제로 들어가는 모듈 테이블 하나씩을 검사해 배치합니다. 배치 결과는 아래 위성사진 위에 실제 방위(정북 기준)로 표시됩니다. 실제 배치는 정밀 실측·설계 시 달라질 수 있습니다.</p>
+          <p class="desc">추가한 모든 필지를 하나로 합쳐, 필지 경계 안에 실제로 들어가는 모듈 테이블 하나씩을 검사해 배치합니다. 배치 결과는 아래 위성사진 위에 실제 방위(정북 기준)로 표시되며, 모듈 방향과 필지별 배치는 설정 아래에서 바꿀 수 있습니다. 실제 배치는 정밀 실측·설계 시 달라질 수 있습니다.</p>
 
           <div class="maplabel"><span class="lbl">위성사진 — 필지 경계 오버레이</span><span class="src">브이월드 위성영상</span></div>
           <div id="mapview"></div>
@@ -346,6 +358,34 @@ a{color:var(--accent);}
             <div class="field"><label>경사각(°)</label><input id="tiltAngle" type="number" value="30" min="0" max="45"></div>
             <div class="field"><label>경계 이격(m)</label><input id="setbackM" type="number" value="3" min="0" max="20" step="0.5"></div>
             <div class="field"><label>가용면적비율(%)</label><input id="usableRatio" type="number" value="75" min="30" max="100" step="1"></div>
+          </div>
+
+          <div class="layoutctl">
+            <div class="field azfield">
+              <label>모듈 방향 — 정남 0° 기준, 동쪽(−) · 서쪽(+)</label>
+              <div class="azrow">
+                <span class="azend">동</span>
+                <input id="azimuthRange" type="range" min="-90" max="90" step="1" value="0">
+                <span class="azend">서</span>
+                <input id="azimuthDeg" type="number" min="-90" max="90" step="1" value="0">
+                <span class="azlbl" id="azimuthLabel">정남</span>
+                <button type="button" class="azreset" id="azimuthReset">정남으로</button>
+              </div>
+            </div>
+            <div class="field">
+              <label>배치 방식</label>
+              <select id="layoutMode">
+                <option value="combined" selected>여러 필지를 합쳐서 배치</option>
+                <option value="perParcel">필지마다 따로 배치</option>
+              </select>
+            </div>
+          </div>
+          <div class="parcellayout hidden" id="parcelLayoutWrap">
+            <table class="zonelist">
+              <thead><tr><th>배치</th><th>필지</th><th>방향(°)</th><th>테이블</th><th>모듈</th><th>용량</th></tr></thead>
+              <tbody id="parcelLayoutBody"></tbody>
+            </table>
+            <div class="note">필지별로 배치 여부와 방향을 따로 정할 수 있어요. 방향 칸을 비워두면 위의 공통 방향을 따릅니다. 이 방식에서는 모듈 테이블이 필지 경계를 넘지 않습니다.</div>
           </div>
 
           <div class="simresult">
@@ -1016,7 +1056,7 @@ a{color:var(--accent);}
     var lon0 = state.combined.lon0, lat0 = state.combined.lat0;
     if(!ll || !ll.tables || !ll.tables.length || lon0==null || lat0==null) return;
     ll.tables.forEach(function(t){
-      var corners = [[t.x0,t.y0],[t.x1,t.y0],[t.x1,t.y1],[t.x0,t.y1]];
+      var corners = t.corners || [[t.x0,t.y0],[t.x1,t.y0],[t.x1,t.y1],[t.x0,t.y1]];
       var latlngs = corners.map(function(c){ var ll2 = fromXY(c[0], c[1], lon0, lat0); return [ll2[1], ll2[0]]; });
       var poly = L.polygon(latlngs, { color:'#2B6CB0', weight:1, fillColor:'#4C8FE0', fillOpacity:0.55 }).addTo(leafletMap);
       leafletModuleLayers.push(poly);
@@ -1340,6 +1380,96 @@ a{color:var(--accent);}
     return { tables: tables, uMinX:uMinX, uMaxX:uMaxX, uMinY:uMinY, uMaxY:uMaxY };
   }
 
+  // ---------- 모듈 방향(방위각) ----------
+  // 방위각 az: 정남 0°, 서쪽 +, 동쪽 −. 배치 좌표계(u=행 방향, v=행 간격 방향)로 회전해
+  // 배치한 뒤 다시 실제 좌표로 되돌린다. az=0이면 기존과 동일하게 정남향 배치.
+  function toFrame(p, th){ var c = Math.cos(th), s = Math.sin(th); return [ p[0]*c - p[1]*s, p[0]*s + p[1]*c ]; }
+  function fromFrame(q, th){ var c = Math.cos(th), s = Math.sin(th); return [ q[0]*c + q[1]*s, -q[0]*s + q[1]*c ]; }
+  function bboxRect(polys){
+    var minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+    polys.forEach(function(poly){ poly.forEach(function(p){
+      if(p[0]<minX) minX=p[0]; if(p[0]>maxX) maxX=p[0];
+      if(p[1]<minY) minY=p[1]; if(p[1]>maxY) maxY=p[1];
+    }); });
+    return { minX:minX, maxX:maxX, minY:minY, maxY:maxY, w:maxX-minX, h:maxY-minY };
+  }
+  function clampAz(v){ v = Math.round(parseFloat(v)); return isNaN(v) ? 0 : Math.max(-90, Math.min(90, v)); }
+  function currentAzimuth(){ return clampAz(document.getElementById('azimuthDeg').value); }
+  function azimuthText(az){
+    if(az === 0) return '정남';
+    return (az < 0 ? '남동 ' : '남서 ') + Math.abs(az) + '°';
+  }
+  function setAzimuth(v){
+    var az = clampAz(v);
+    document.getElementById('azimuthRange').value = az;
+    document.getElementById('azimuthDeg').value = az;
+    document.getElementById('azimuthLabel').textContent = azimuthText(az);
+    runSimulation();
+  }
+  document.getElementById('azimuthRange').addEventListener('input', function(){ setAzimuth(this.value); });
+  document.getElementById('azimuthDeg').addEventListener('input', function(){
+    if(this.value === '' || this.value === '-') return;
+    var az = clampAz(this.value);
+    document.getElementById('azimuthRange').value = az;
+    document.getElementById('azimuthLabel').textContent = azimuthText(az);
+    runSimulation();
+  });
+  document.getElementById('azimuthReset').addEventListener('click', function(){ setAzimuth(0); });
+  document.getElementById('layoutMode').addEventListener('change', runSimulation);
+
+  // ---------- 필지별 배치 표 ----------
+  function shortParcelName(p){
+    var parts = String(p.addressText || p.pnu).split(' ');
+    return parts.slice(-2).join(' ');
+  }
+  var parcelLayoutBody = document.getElementById('parcelLayoutBody');
+  function renderParcelLayoutTable(perParcel, globalAz, spec){
+    var wrap = document.getElementById('parcelLayoutWrap');
+    var list = state.parcels.filter(function(p){ return p.projected && p.projected.length>=3; });
+    wrap.classList.toggle('hidden', !perParcel || !list.length);
+    if(!perParcel || !list.length) return;
+    // 필지 구성이 같으면 입력칸을 다시 만들지 않고 숫자만 갱신 (입력 중 커서가 튀지 않도록)
+    var key = list.map(function(p){ return p.pnu; }).join('|');
+    if(parcelLayoutBody.getAttribute('data-key') !== key){
+      parcelLayoutBody.setAttribute('data-key', key);
+      parcelLayoutBody.innerHTML = list.map(function(p){
+        return '<tr data-pnu="'+escapeHtml(p.pnu)+'">' +
+          '<td><input type="checkbox" class="pl-on"'+(p.layoutOn === false ? '' : ' checked')+'></td>' +
+          '<td>'+escapeHtml(shortParcelName(p))+'</td>' +
+          '<td><input type="number" class="pl-az" min="-90" max="90" step="1" value="'+(p.azimuth == null ? '' : p.azimuth)+'"></td>' +
+          '<td class="mono pl-t"></td><td class="mono pl-m"></td><td class="mono pl-c"></td></tr>';
+      }).join('');
+    }
+    var sumT = 0;
+    list.forEach(function(p){
+      var tr = parcelLayoutBody.querySelector('tr[data-pnu="'+p.pnu+'"]');
+      if(!tr) return;
+      var on = p.layoutOn !== false, t = on ? (p.layoutTables || 0) : 0;
+      sumT += t;
+      tr.classList.toggle('off', !on);
+      tr.querySelector('.pl-az').placeholder = globalAz + ' (공통)';
+      tr.querySelector('.pl-t').textContent = on ? fmt(t,0) + '개' : '-';
+      tr.querySelector('.pl-m').textContent = on ? fmt(t*spec.stack,0) + '매' : '-';
+      tr.querySelector('.pl-c').textContent = on ? fmt(t*spec.stack*spec.watt/1000,1) + ' kWp' : '배치 안 함';
+    });
+  }
+  parcelLayoutBody.addEventListener('change', function(e){
+    var tr = e.target.closest('tr[data-pnu]');
+    if(!tr || !e.target.classList.contains('pl-on')) return;
+    var p = state.parcels.filter(function(x){ return x.pnu === tr.getAttribute('data-pnu'); })[0];
+    if(p){ p.layoutOn = e.target.checked; runSimulation(); }
+  });
+  parcelLayoutBody.addEventListener('input', function(e){
+    var tr = e.target.closest('tr[data-pnu]');
+    if(!tr || !e.target.classList.contains('pl-az')) return;
+    var p = state.parcels.filter(function(x){ return x.pnu === tr.getAttribute('data-pnu'); })[0];
+    if(!p) return;
+    var v = e.target.value;
+    if(v === '-') return;
+    p.azimuth = v === '' ? null : clampAz(v);
+    runSimulation();
+  });
+
   function runSimulation(){
     var note = document.getElementById('simNote');
     var rect = state.combined.rect;
@@ -1352,6 +1482,7 @@ a{color:var(--accent);}
       document.getElementById('resGcr').textContent = '-';
       note.textContent = '필지 경계 정보를 불러오지 못해 배치 시뮬레이션을 표시할 수 없습니다.';
       state.lastLayout = null;
+      document.getElementById('parcelLayoutWrap').classList.add('hidden');
       updateMapModules();
       updateEconomics(0);
       return;
@@ -1377,16 +1508,33 @@ a{color:var(--accent);}
     var pitch = Math.max(shadingPitch, gcrMinPitch);
     var gcrPct = pitch>0 ? (tableDepth/pitch*100) : 0;
 
-    var rotatedPolys = state.parcels
-      .filter(function(p){ return p.projected && p.projected.length>=3; })
-      .map(function(p){ return rotateAll(p.projected, rect.angle); });
+    // 배치 대상 필지 묶음: 합쳐서 배치 → 한 묶음(공통 방향), 필지마다 → 필지별 묶음(필지별 방향)
+    var globalAz = currentAzimuth();
+    var perParcel = document.getElementById('layoutMode').value === 'perParcel';
+    var active = state.parcels.filter(function(p){ return p.projected && p.projected.length>=3 && p.layoutOn !== false; });
+    var groups = perParcel
+      ? active.map(function(p){ return { parcels:[p], az:(p.azimuth == null ? globalAz : p.azimuth) }; })
+      : (active.length ? [{ parcels:active, az:globalAz }] : []);
 
-    var layout = buildLayout(rotatedPolys, rect, spec, pitch, tableDepth, longM);
-    var tableCount = layout.tables.length;
+    var allTables = [];
+    state.parcels.forEach(function(p){ p.layoutTables = 0; });
+    groups.forEach(function(g){
+      var th = g.az * Math.PI/180;
+      var framePolys = g.parcels.map(function(p){ return p.projected.map(function(pt){ return toFrame(pt, th); }); });
+      var layout = buildLayout(framePolys, bboxRect(framePolys), spec, pitch, tableDepth, longM);
+      layout.tables.forEach(function(t){
+        t.corners = [[t.x0,t.y0],[t.x1,t.y0],[t.x1,t.y1],[t.x0,t.y1]].map(function(c){ return fromFrame(c, th); });
+        allTables.push(t);
+      });
+      if(perParcel) g.parcels[0].layoutTables = layout.tables.length;
+    });
+    renderParcelLayoutTable(perParcel, globalAz, spec);
+
+    var tableCount = allTables.length;
     var layoutModules = tableCount * spec.stack;
 
     var moduleAreaEach = longM * shortM;
-    var totalAreaM2 = state.combined.areaM2 || 0;
+    var totalAreaM2 = active.reduce(function(s,p){ return s + (p.areaM2||0); }, 0);
     var areaBasedModules = moduleAreaEach>0 ? Math.floor((totalAreaM2 * (spec.usableRatioPct/100)) / moduleAreaEach) : 0;
 
     var capacityKw = (layoutModules * spec.watt) / 1000;
@@ -1397,12 +1545,14 @@ a{color:var(--accent);}
     document.getElementById('resGrid').textContent = fmt(tableCount,0) + '개 × ' + spec.stack + '단';
     document.getElementById('resGcr').textContent = fmt(gcrPct,1) + '%' + (spec.isAgri ? (gcrPct>30.5?' (30% 초과 — 확인필요)':' (30% 이내)') : '');
 
-    var nParcels = rotatedPolys.length;
-    note.textContent = (nParcels>1 ? (nParcels+'개 필지를 하나로 합쳐 계산했습니다. ') : '') +
+    var nParcels = active.length;
+    note.textContent = (nParcels>1 ? (perParcel ? (nParcels+'개 필지에 각각 따로 배치했습니다. ') : (nParcels+'개 필지를 하나로 합쳐 계산했습니다. ')) : '') +
+      (perParcel ? '모듈 방향은 필지별 설정을 따릅니다. ' : '모듈 방향: ' + azimuthText(globalAz) + '. ') +
+      (globalAz !== 0 || perParcel ? '행간은 정남 기준으로 계산해 방향을 틀어도 그늘 여유가 줄지 않도록 했습니다. ' : '') +
       '설계 기준: 위도 ' + lat.toFixed(2) + '°N 동지 태양고도 ' + sunAltDeg.toFixed(1) + '°에서 앞줄 그늘이 뒷줄에 닿지 않도록 행간(pitch) ' + pitch.toFixed(2) + 'm 적용(경사각이 커질수록 그늘이 길어져 행간도 늘어납니다). 각 테이블(가로 ' + longM.toFixed(2) + 'm × 세로 ' + tableDepth.toFixed(2) + 'm, ' + spec.stack + '단 모듈 ' + spec.stack + '매 탑재)의 네 꼭짓점이 추가된 필지들 중 하나에라도 들어가는지 하나씩 검사해 배치했습니다(필지 경계선이 서로 붙어있으면 그 경계를 넘어서도 배치됩니다). 면적기준 참고치는 가용면적비율 ' + spec.usableRatioPct + '%만 적용한 단순 상한값입니다.' +
       (spec.isAgri ? ' 영농형 태양광은 1단 고정 + 차광률(GCR) 30% 이내를 만족하도록 행간을 자동으로 넓혀 계산했습니다(현재 ' + gcrPct.toFixed(1) + '%).' : '');
 
-    state.lastLayout = { tables: layout.tables, rect: rect };
+    state.lastLayout = { tables: allTables };
     updateMapModules();
     updateEconomics(capacityKw);
   }
@@ -1834,8 +1984,9 @@ a{color:var(--accent);}
     pptxBadge(s3, '설비 구분 — ' + facilityLabel, PPT.ACCENT, y3); y3 += 0.75;
     pptxSub(s3, '1. 모듈 사양 · 배치 결과', y3); y3 += 0.45;
     y3 += pptxTable(s3, [
-      ['정격출력','장변','단변','거치 단수','경사각','경계 이격'],
-      [val('moduleWatt')+'W', val('moduleLong')+'mm', val('moduleShort')+'mm', val('stackCount')+'단', val('tiltAngle')+'°', val('setbackM')+'m'],
+      ['정격출력','장변','단변','거치 단수','경사각','경계 이격','모듈 방향'],
+      [val('moduleWatt')+'W', val('moduleLong')+'mm', val('moduleShort')+'mm', val('stackCount')+'단', val('tiltAngle')+'°', val('setbackM')+'m',
+       document.getElementById('layoutMode').value === 'perParcel' ? '필지별' : azimuthText(currentAzimuth())],
     ], MX, y3, CW, { rowH:0.42, fontSize:10.5 }) + 0.25;
     y3 += pptxTable(s3, [
       ['배치 모듈수','테이블수×단수','설비용량','차광률(GCR)'],
