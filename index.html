@@ -423,6 +423,14 @@ a{color:var(--accent);}
           </div>
           <div class="note" id="simNote"></div>
           <div class="note" id="facilityTypeNote"></div>
+
+          <div class="maplabel" style="margin-top:16px;"><span class="lbl">배치도(CAD) · 상세견적(엑셀) 내보내기</span></div>
+          <div class="kepco">
+            <button class="btn primary" id="exportDxfBtn" type="button">📐 배치도 CAD 다운로드 (.dxf)</button>
+            <button class="btn primary" id="exportXlsxBtn" type="button">📑 상세견적 엑셀 다운로드 (.xlsx)</button>
+            <span class="note" id="exportLayoutStatus" style="margin:0;"></span>
+          </div>
+          <div class="note">위 배치 결과(필지 경계·건물·모듈 한 장 한 장)를 실제 크기(mm, 정북이 위쪽)로 CAD 도면에 옮깁니다. 오토캐드·캐디안·ZWCAD 등에서 열 수 있어요. 엑셀 견적서는 같은 배치 물량(모듈 매수·어레이 길이·100kW 단위 수량)으로 내역서를 만들며, 노란 칸의 단가는 직접 고칠 수 있습니다(지금 단가는 임시값입니다).</div>
         </div>
 
         <div class="card">
@@ -1647,8 +1655,10 @@ a{color:var(--accent);}
       var th = g.az * Math.PI/180;
       var framePolys = g.polys.map(function(poly){ return poly.map(function(pt){ return toFrame(pt, th); }); });
       var layout = buildLayout(framePolys, bboxRect(framePolys), spec, pitch, tableDepth, rowLenM);
+      var gi = groups.indexOf(g);
       layout.tables.forEach(function(t){
         t.corners = [[t.x0,t.y0],[t.x1,t.y0],[t.x1,t.y1],[t.x0,t.y1]].map(function(c){ return fromFrame(c, th); });
+        t.g = gi;   // 배치 묶음 번호 (CAD·견적에서 같은 줄 어레이를 찾을 때 사용)
         allTables.push(t);
       });
       if(g.owner) g.owner.layoutTables += layout.tables.length;
@@ -1686,10 +1696,617 @@ a{color:var(--accent);}
       '설계 기준: 위도 ' + lat.toFixed(2) + '°N 동지 태양고도 ' + sunAltDeg.toFixed(1) + '°에서 앞줄 그늘이 뒷줄에 닿지 않도록 행간(pitch) ' + pitch.toFixed(2) + 'm 적용(경사각이 커질수록 그늘이 길어져 행간도 늘어납니다). 각 테이블(' + (portrait ? '세로형' : '가로형') + ', 가로 ' + rowLenM.toFixed(2) + 'm × 세로 ' + tableDepth.toFixed(2) + 'm, ' + spec.stack + '단 모듈 ' + spec.stack + '매 탑재)의 네 꼭짓점이 추가된 필지들 중 하나에라도 들어가는지 하나씩 검사해 배치했습니다(필지 경계선이 서로 붙어있으면 그 경계를 넘어서도 배치됩니다). 면적기준 참고치는 가용면적비율 ' + spec.usableRatioPct + '%만 적용한 단순 상한값입니다.' +
       (spec.isAgri ? ' 영농형 태양광은 1단 고정 + 차광률(GCR) 30% 이내를 만족하도록 행간을 자동으로 넓혀 계산했습니다(현재 ' + gcrPct.toFixed(1) + '%).' : '');
 
-    state.lastLayout = { tables: allTables };
+    state.lastLayout = { tables: allTables, groups: groups, spec: spec, pitch: pitch, tableDepth: tableDepth,
+      rowLenM: rowLenM, slopeLenM: slopeLenM, portrait: portrait, capacityKw: capacityKw, gcrPct: gcrPct,
+      globalAz: globalAz, perParcel: perParcel, roofPitched: roofPitched, sunAltDeg: sunAltDeg };
     updateMapModules();
     updateEconomics(capacityKw);
   }
+
+  // ---------- 배치도(CAD .dxf) · 상세견적(엑셀 .xlsx) 내보내기 ----------
+  // 04번 배치 결과(state.lastLayout)를 그대로 사용한다. 좌표는 배치 계산과 같은 현장 기준
+  // 평면좌표(m)를 mm로 바꾸고, 필지 묶음의 왼쪽 아래 모서리를 원점(0,0)으로 옮긴다. 정북이 위쪽.
+  function exportStatus(msg, isErr){
+    var el = document.getElementById('exportLayoutStatus');
+    el.style.color = isErr ? 'var(--bad-ink)' : '';
+    el.textContent = msg || '';
+  }
+  function todayStr(sep){
+    var d = new Date(); sep = sep == null ? '.' : sep;
+    return d.getFullYear() + sep + String(d.getMonth()+1).padStart(2,'0') + sep + String(d.getDate()).padStart(2,'0');
+  }
+  function downloadBlob(blob, filename){
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); a.parentNode.removeChild(a); }, 1000);
+  }
+  function safeFileName(s){ return String(s || '부지').replace(/[\\\/:*?"<>|]/g, '').replace(/\s+/g, '_').slice(0, 40); }
+  function facilityTypeText(){
+    var v = document.getElementById('facilityType').value;
+    return v === 'agrivoltaic' ? '영농형 태양광' : (v === 'roof' ? '지붕 태양광' : '일반 태양광');
+  }
+  function layoutReady(){
+    var ll = state.lastLayout;
+    return ll && ll.tables && ll.tables.length && ll.spec && state.combined.rect;
+  }
+  // 같은 배치 묶음·같은 줄에서 옆으로 붙어 있는 테이블들을 하나의 어레이(구조물 한 줄)로 묶는다.
+  function layoutArrays(ll){
+    var rows = {};
+    ll.tables.forEach(function(t){
+      var key = t.g + '|' + Math.round(t.y0 * 1000);
+      (rows[key] = rows[key] || []).push(t);
+    });
+    var arrays = [];
+    Object.keys(rows).forEach(function(key){
+      var list = rows[key].sort(function(a, b){ return a.x0 - b.x0; });
+      var cur = null;
+      list.forEach(function(t){
+        if(cur && Math.abs(t.x0 - cur.x1) < 0.001){ cur.x1 = t.x1; cur.n++; }
+        else { cur = { g:t.g, y0:t.y0, y1:t.y1, x0:t.x0, x1:t.x1, n:1 }; arrays.push(cur); }
+      });
+    });
+    arrays.forEach(function(a){
+      var th = ll.groups[a.g].az * Math.PI/180;
+      a.corners = [[a.x0,a.y0],[a.x1,a.y0],[a.x1,a.y1],[a.x0,a.y1]].map(function(c){ return fromFrame(c, th); });
+      a.cy = (a.corners[0][1] + a.corners[2][1]) / 2;
+      a.cx = (a.corners[0][0] + a.corners[2][0]) / 2;
+      a.lengthM = a.x1 - a.x0;
+    });
+    // 북쪽 줄부터, 같은 줄은 서쪽부터 번호를 매긴다
+    arrays.sort(function(a, b){ return Math.abs(a.cy - b.cy) > 0.5 ? b.cy - a.cy : a.cx - b.cx; });
+    arrays.forEach(function(a, i){ a.no = i + 1; });
+    return arrays;
+  }
+  // 테이블(모듈 stack장)을 경사 방향으로 나눠 모듈 한 장 한 장의 평면 외곽선을 만든다.
+  function tableModules(t, ll){
+    var th = ll.groups[t.g].az * Math.PI/180, n = ll.spec.stack, d = (t.y1 - t.y0) / n, out = [];
+    for(var k = 0; k < n; k++){
+      var ya = t.y0 + k*d, yb = ya + d;
+      out.push([[t.x0,ya],[t.x1,ya],[t.x1,yb],[t.x0,yb]].map(function(c){ return fromFrame(c, th); }));
+    }
+    return out;
+  }
+  function parcelOfPoint(pt){
+    for(var i = 0; i < state.parcels.length; i++){
+      var p = state.parcels[i];
+      if(p.projected && p.projected.length >= 3 && pointInPolygon(pt, p.projected)) return p;
+    }
+    return null;
+  }
+  // 필지별 테이블 수 (테이블 중심이 들어있는 필지 기준)
+  function tablesPerParcel(ll){
+    var map = {};
+    ll.tables.forEach(function(t){
+      var c = t.corners, cx = (c[0][0]+c[2][0])/2, cy = (c[0][1]+c[2][1])/2;
+      var p = parcelOfPoint([cx, cy]);
+      var k = p ? p.pnu : '_';
+      map[k] = (map[k] || 0) + 1;
+    });
+    return map;
+  }
+  function layoutSummary(ll){
+    var spec = ll.spec, arrays = layoutArrays(ll);
+    var modules = ll.tables.length * spec.stack;
+    var totalLen = arrays.reduce(function(s, a){ return s + a.lengthM; }, 0);
+    return {
+      arrays: arrays, modules: modules, tables: ll.tables.length, capacityKw: modules * spec.watt / 1000,
+      arrayLenM: totalLen, addrList: state.parcels.map(function(p){ return p.addressText; }),
+      orientText: ll.portrait ? '세로형' : '가로형',
+      azText: ll.perParcel ? '필지별 설정' : (spec.isRoof && document.getElementById('roofAutoAlign').checked ? '건물 방향 자동 정렬' : azimuthText(ll.globalAz))
+    };
+  }
+
+  // ---- DXF (AutoCAD R12 형식: 오토캐드·캐디안·ZWCAD·BricsCAD 등에서 대부분 열림) ----
+  // 한글 CAD 표준인 CP949(ANSI_949) 인코딩으로 저장한다. 브라우저에는 CP949 '인코더'가 없으므로
+  // 내장 EUC-KR '디코더'로 2바이트 조합을 한 번 풀어 역변환표를 만든다(처음 한 번만, 수십 ms).
+  var cp949Table = null;
+  function getCp949Table(){
+    if(cp949Table) return cp949Table;
+    cp949Table = {};
+    var dec = new TextDecoder('euc-kr'), buf = new Uint8Array(2);
+    for(var hi = 0x81; hi <= 0xFE; hi++){
+      for(var lo = 0x41; lo <= 0xFE; lo++){
+        buf[0] = hi; buf[1] = lo;
+        var ch = dec.decode(buf);
+        if(ch.length === 1 && ch !== '\uFFFD' && cp949Table[ch] === undefined) cp949Table[ch] = (hi << 8) | lo;
+      }
+    }
+    return cp949Table;
+  }
+  function encodeCp949(str){
+    var tbl = getCp949Table(), out = [];
+    for(var i = 0; i < str.length; i++){
+      var code = str.charCodeAt(i);
+      if(code < 0x80){ out.push(code); continue; }
+      var v = tbl[str.charAt(i)];
+      if(v !== undefined){ out.push(v >> 8, v & 0xFF); continue; }
+      // CP949에 없는 글자는 CAD 유니코드 표기(\U+XXXX)로
+      var h = code.toString(16).toUpperCase(); while(h.length < 4) h = '0' + h;
+      ('\\U+' + h).split('').forEach(function(c){ out.push(c.charCodeAt(0)); });
+    }
+    return new Uint8Array(out);
+  }
+  function dxfStr(s){ return String(s == null ? '' : s).replace(/[\r\n]+/g, ' '); }
+  function DxfWriter(){ this.out = []; }
+  DxfWriter.prototype.g = function(code, v){ this.out.push(code, v); };
+  DxfWriter.prototype.n = function(v){ return (Math.round(v * 10) / 10).toFixed(1); };
+  DxfWriter.prototype.poly = function(layer, pts, closed){
+    var self = this;
+    this.g(0,'POLYLINE'); this.g(8,layer); this.g(66,1); this.g(10,'0.0'); this.g(20,'0.0'); this.g(30,'0.0'); this.g(70, closed ? 1 : 0);
+    pts.forEach(function(p){ self.g(0,'VERTEX'); self.g(8,layer); self.g(10,self.n(p[0])); self.g(20,self.n(p[1])); self.g(30,'0.0'); });
+    this.g(0,'SEQEND'); this.g(8,layer);
+  };
+  DxfWriter.prototype.line = function(layer, a, b){
+    this.g(0,'LINE'); this.g(8,layer);
+    this.g(10,this.n(a[0])); this.g(20,this.n(a[1])); this.g(30,'0.0');
+    this.g(11,this.n(b[0])); this.g(21,this.n(b[1])); this.g(31,'0.0');
+  };
+  // align: 'left' | 'center'  (center = 가운데·중간 정렬)
+  DxfWriter.prototype.text = function(layer, p, h, str, align){
+    this.g(0,'TEXT'); this.g(8,layer); this.g(7,'KOR');
+    this.g(10,this.n(p[0])); this.g(20,this.n(p[1])); this.g(30,'0.0');
+    this.g(40,this.n(h)); this.g(1,dxfStr(str));
+    if(align === 'center'){ this.g(72,1); this.g(11,this.n(p[0])); this.g(21,this.n(p[1])); this.g(31,'0.0'); this.g(73,2); }
+  };
+  DxfWriter.prototype.solid = function(layer, a, b, c){
+    // 삼각형 채움 (북쪽 화살표용)
+    this.g(0,'SOLID'); this.g(8,layer);
+    this.g(10,this.n(a[0])); this.g(20,this.n(a[1])); this.g(30,'0.0');
+    this.g(11,this.n(b[0])); this.g(21,this.n(b[1])); this.g(31,'0.0');
+    this.g(12,this.n(c[0])); this.g(22,this.n(c[1])); this.g(32,'0.0');
+    this.g(13,this.n(c[0])); this.g(23,this.n(c[1])); this.g(33,'0.0');
+  };
+
+  var DXF_LAYERS = [
+    ['PV_PARCEL', 1, 'CONTINUOUS'],   // 필지 경계 (빨강)
+    ['PV_BUILDING', 4, 'DASHED'],     // 건물(지붕) 외곽선 (하늘색 점선)
+    ['PV_ARRAY', 5, 'CONTINUOUS'],    // 어레이(구조물 한 줄) 외곽 (파랑)
+    ['PV_MODULE', 150, 'CONTINUOUS'], // 모듈 한 장 (청색 계열)
+    ['PV_TEXT', 7, 'CONTINUOUS'],     // 지번·어레이 번호
+    ['PV_NOTE', 7, 'CONTINUOUS'],     // 표제·설계 개요·축척
+    ['PV_FRAME', 8, 'CONTINUOUS']     // 도면 테두리
+  ];
+
+  function buildLayoutDxf(){
+    var ll = state.lastLayout, spec = ll.spec, rect = state.combined.rect, sum = layoutSummary(ll);
+    var ox = rect.minX, oy = rect.minY;
+    function P(pt){ return [(pt[0] - ox) * 1000, (pt[1] - oy) * 1000]; }
+    var W = rect.w * 1000, H = rect.h * 1000, S = Math.max(W, H, 10000);
+    var th = Math.max(250, Math.min(5000, S / 70));   // 기본 글자 높이(mm)
+
+    var ent = new DxfWriter();
+    // 1) 필지 경계 + 지번·면적
+    state.parcels.forEach(function(p){
+      if(!p.projected || p.projected.length < 3) return;
+      ent.poly('PV_PARCEL', p.projected.map(P), true);
+      var cx = 0, cy = 0; p.projected.forEach(function(q){ cx += q[0]; cy += q[1]; });
+      cx /= p.projected.length; cy /= p.projected.length;
+      var c = P([cx, cy]);
+      ent.text('PV_TEXT', [c[0], c[1] + th*0.8], th*1.2, jibunOf(p) + (jimokOf(p) ? ' ' + jimokOf(p) : ''), 'center');
+      ent.text('PV_TEXT', [c[0], c[1] - th*0.8], th*0.9, fmt(p.areaM2, 0) + '㎡ (' + fmt(pyeong(p.areaM2), 0) + '평)', 'center');
+    });
+    // 2) 지붕 태양광: 건물 외곽선
+    if(spec.isRoof){
+      state.parcels.forEach(function(p){
+        (p.buildings || []).forEach(function(b){
+          ent.poly('PV_BUILDING', b.ll.map(function(pt){ return P(toXY(pt[0], pt[1], state.combined.lon0, state.combined.lat0)); }), true);
+        });
+      });
+    }
+    // 3) 모듈 한 장씩
+    ll.tables.forEach(function(t){
+      tableModules(t, ll).forEach(function(m){ ent.poly('PV_MODULE', m.map(P), true); });
+    });
+    // 4) 어레이 외곽 + 번호 (어레이가 너무 많으면 번호는 생략)
+    var labelArrays = sum.arrays.length <= 400;
+    sum.arrays.forEach(function(a){
+      var cs = a.corners.map(P);
+      ent.poly('PV_ARRAY', cs, true);
+      if(labelArrays){
+        var lx = (cs[0][0] + cs[3][0]) / 2, ly = (cs[0][1] + cs[3][1]) / 2;
+        ent.text('PV_TEXT', [lx - th*0.3, ly - th*0.25], th*0.5, 'A' + a.no, 'left');
+      }
+    });
+
+    // 5) 북쪽 화살표 (오른쪽 위)
+    var nx = W + th*4, ny = H - th*2, ar = th*1.6;
+    ent.solid('PV_NOTE', [nx, ny + ar], [nx - ar*0.5, ny - ar], [nx, ny - ar*0.5]);
+    ent.poly('PV_NOTE', [[nx, ny + ar], [nx + ar*0.5, ny - ar], [nx, ny - ar*0.5], [nx, ny + ar]], false);
+    ent.text('PV_NOTE', [nx, ny + ar + th*1.2], th*1.4, 'N', 'center');
+
+    // 6) 축척 막대 (아래쪽)
+    var barM = [5,10,20,50,100,200,500].filter(function(v){ return v*1000 <= W/3; }).pop() || 5;
+    var bx = 0, by = -th*3, bl = barM * 1000;
+    ent.line('PV_NOTE', [bx, by], [bx + bl, by]);
+    for(var i = 0; i <= 4; i++){ var xx = bx + bl*i/4; ent.line('PV_NOTE', [xx, by - th*0.3], [xx, by + th*0.3]); }
+    ent.text('PV_NOTE', [bx, by - th*1.3], th*0.8, '0', 'left');
+    ent.text('PV_NOTE', [bx + bl, by - th*1.3], th*0.8, barM + 'm', 'left');
+
+    // 7) 설계 개요 (아래쪽 표제란)
+    var o = state.combined;
+    var lines = [
+      '태양광 모듈 배치도',
+      '위치: ' + addrSummary(sum.addrList, ', '),
+      '설비 구분: ' + facilityTypeText() + (spec.isRoof ? (ll.roofPitched ? ' (경사·패널 지붕)' : ' (평지붕)') : ''),
+      '모듈: ' + spec.watt + 'W (' + spec.longMm + '×' + spec.shortMm + 'mm), ' + sum.orientText + ' ' + spec.stack + '단, 경사각 ' + spec.tiltDeg + '°',
+      '수량: 모듈 ' + fmt(sum.modules,0) + '매 / 테이블 ' + fmt(sum.tables,0) + '개 / 어레이 ' + fmt(sum.arrays.length,0) + '열 (총 길이 ' + fmt(sum.arrayLenM,1) + 'm)',
+      '설비용량: ' + fmt(sum.capacityKw, 2) + ' kWp',
+      '방향: ' + sum.azText + ' / 행간(pitch) ' + ll.pitch.toFixed(2) + 'm / 차광률(GCR) ' + ll.gcrPct.toFixed(1) + '% / 경계 이격 ' + spec.setback + 'm',
+      '단위: mm, 정북이 위쪽. 원점(0,0) = 위도 ' + fromXY(ox, oy, o.lon0, o.lat0)[1].toFixed(6) + ', 경도 ' + fromXY(ox, oy, o.lon0, o.lat0)[0].toFixed(6),
+      '필지 경계는 브이월드 연속지적도 기준이며 실측과 다를 수 있습니다. 작성일 ' + todayStr('.')
+    ];
+    var ty = by - th*4;
+    lines.forEach(function(s, i){
+      ent.text('PV_NOTE', [0, ty], i === 0 ? th*1.6 : th*0.9, s, 'left');
+      ty -= i === 0 ? th*2.4 : th*1.5;
+    });
+    // 8) 테두리
+    var fx0 = -th*3, fy0 = ty - th*1.5, fx1 = Math.max(W, lines.reduce(function(m, s){ return Math.max(m, s.length * th*1.0); }, 0)) + th*8, fy1 = H + th*6;
+    ent.poly('PV_FRAME', [[fx0,fy0],[fx1,fy0],[fx1,fy1],[fx0,fy1]], true);
+
+    // 헤더·테이블(선 종류·레이어·글꼴)
+    var hd = new DxfWriter();
+    hd.g(0,'SECTION'); hd.g(2,'HEADER');
+    hd.g(9,'$ACADVER'); hd.g(1,'AC1009');
+    hd.g(9,'$DWGCODEPAGE'); hd.g(3,'ANSI_949');
+    hd.g(9,'$INSBASE'); hd.g(10,'0.0'); hd.g(20,'0.0'); hd.g(30,'0.0');
+    hd.g(9,'$EXTMIN'); hd.g(10,hd.n(fx0)); hd.g(20,hd.n(fy0)); hd.g(30,'0.0');
+    hd.g(9,'$EXTMAX'); hd.g(10,hd.n(fx1)); hd.g(20,hd.n(fy1)); hd.g(30,'0.0');
+    hd.g(9,'$LTSCALE'); hd.g(40,'1.0');
+    hd.g(0,'ENDSEC');
+    hd.g(0,'SECTION'); hd.g(2,'TABLES');
+    hd.g(0,'TABLE'); hd.g(2,'LTYPE'); hd.g(70,2);
+    hd.g(0,'LTYPE'); hd.g(2,'CONTINUOUS'); hd.g(70,0); hd.g(3,'Solid line'); hd.g(72,65); hd.g(73,0); hd.g(40,'0.0');
+    hd.g(0,'LTYPE'); hd.g(2,'DASHED'); hd.g(70,0); hd.g(3,'__ __ __'); hd.g(72,65); hd.g(73,2); hd.g(40,'1500.0'); hd.g(49,'1000.0'); hd.g(49,'-500.0');
+    hd.g(0,'ENDTAB');
+    hd.g(0,'TABLE'); hd.g(2,'LAYER'); hd.g(70,DXF_LAYERS.length + 1);
+    hd.g(0,'LAYER'); hd.g(2,'0'); hd.g(70,0); hd.g(62,7); hd.g(6,'CONTINUOUS');
+    DXF_LAYERS.forEach(function(l){ hd.g(0,'LAYER'); hd.g(2,l[0]); hd.g(70,0); hd.g(62,l[1]); hd.g(6,l[2]); });
+    hd.g(0,'ENDTAB');
+    hd.g(0,'TABLE'); hd.g(2,'STYLE'); hd.g(70,1);
+    hd.g(0,'STYLE'); hd.g(2,'KOR'); hd.g(70,0); hd.g(40,'0.0'); hd.g(41,'1.0'); hd.g(50,'0.0'); hd.g(71,0); hd.g(42,'250.0'); hd.g(3,'malgun.ttf'); hd.g(4,'');
+    hd.g(0,'ENDTAB');
+    hd.g(0,'ENDSEC');
+    hd.g(0,'SECTION'); hd.g(2,'ENTITIES');
+    var tail = ['0','ENDSEC','0','EOF'];
+    return hd.out.concat(ent.out, tail).join('\r\n') + '\r\n';
+  }
+
+  document.getElementById('exportDxfBtn').addEventListener('click', function(){
+    if(!layoutReady()){ exportStatus('먼저 주소를 추가해 모듈 배치 결과가 나오게 해주세요.', true); return; }
+    try{
+      var dxf = buildLayoutDxf();
+      var name = state.parcels.length ? shortParcelName(state.parcels[0]) : '부지';
+      downloadBlob(new Blob([encodeCp949(dxf)], { type:'application/dxf' }), '태양광배치도_' + safeFileName(name) + '_' + todayStr('') + '.dxf');
+      exportStatus('배치도(.dxf)를 내려받았습니다.');
+    }catch(e){
+      exportStatus('배치도를 만드는 중 문제가 생겼습니다: ' + e.message, true);
+    }
+  });
+
+  // ---- 상세견적 엑셀 (ExcelJS — 버튼을 누를 때만 불러옴) ----
+  var excelJsPromise = null;
+  function loadExcelJS(){
+    if(window.ExcelJS) return Promise.resolve(window.ExcelJS);
+    if(excelJsPromise) return excelJsPromise;
+    var urls = ['https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js',
+                'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js'];
+    excelJsPromise = new Promise(function(resolve, reject){
+      function tryAt(i){
+        if(i >= urls.length){ excelJsPromise = null; reject(new Error('엑셀 라이브러리를 불러오지 못했습니다')); return; }
+        var s = document.createElement('script');
+        s.src = urls[i];
+        s.onload = function(){ window.ExcelJS ? resolve(window.ExcelJS) : tryAt(i + 1); };
+        s.onerror = function(){ tryAt(i + 1); };
+        document.head.appendChild(s);
+      }
+      tryAt(0);
+    });
+    return excelJsPromise;
+  }
+
+  // 배치도 그림 (엑셀 '배치도' 시트에 넣는 PNG) — 정북 위쪽, 흰 바탕
+  function renderLayoutPng(ll, arrays){
+    var rect = state.combined.rect, Wpx = 1600, Hpx = 1100, pad = 40;
+    var sc = Math.min((Wpx - pad*2) / Math.max(rect.w, 1), (Hpx - pad*2) / Math.max(rect.h, 1));
+    var cw = Math.round(rect.w * sc + pad*2), ch = Math.round(rect.h * sc + pad*2);
+    var cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+    var c = cv.getContext('2d');
+    c.fillStyle = '#FFFFFF'; c.fillRect(0, 0, cw, ch);
+    function X(p){ return pad + (p[0] - rect.minX) * sc; }
+    function Y(p){ return ch - pad - (p[1] - rect.minY) * sc; }
+    function path(pts){ c.beginPath(); pts.forEach(function(p, i){ i ? c.lineTo(X(p), Y(p)) : c.moveTo(X(p), Y(p)); }); c.closePath(); }
+    state.parcels.forEach(function(p){
+      if(!p.projected || p.projected.length < 3) return;
+      path(p.projected); c.fillStyle = 'rgba(224,138,44,0.10)'; c.fill();
+      c.strokeStyle = '#D9480F'; c.lineWidth = 2.5; c.stroke();
+    });
+    if(ll.spec.isRoof){
+      c.setLineDash([8, 5]);
+      state.parcels.forEach(function(p){ (p.buildings || []).forEach(function(b){
+        path(b.ll.map(function(pt){ return toXY(pt[0], pt[1], state.combined.lon0, state.combined.lat0); }));
+        c.strokeStyle = '#0891B2'; c.lineWidth = 1.5; c.stroke();
+      }); });
+      c.setLineDash([]);
+    }
+    c.fillStyle = '#4C8FE0'; c.strokeStyle = '#1E4E8C'; c.lineWidth = sc > 6 ? 0.8 : 0.4;
+    ll.tables.forEach(function(t){ path(t.corners); c.fill(); if(sc > 3) c.stroke(); });
+    c.strokeStyle = '#1E3A8A'; c.lineWidth = 1;
+    arrays.forEach(function(a){ path(a.corners); c.stroke(); });
+    // 북쪽 표시
+    var nx = cw - 40, ny = 50;
+    c.fillStyle = '#111'; c.beginPath(); c.moveTo(nx, ny - 26); c.lineTo(nx - 11, ny + 12); c.lineTo(nx, ny + 4); c.closePath(); c.fill();
+    c.font = 'bold 18px sans-serif'; c.textAlign = 'center'; c.fillText('N', nx, ny + 32);
+    return cv.toDataURL('image/png');
+  }
+
+  function estimateItems(ll, sum){
+    var spec = ll.spec, kw = sum.capacityKw, k100 = Math.round(kw / 100 * 1000) / 1000;
+    var roof = spec.isRoof, agri = spec.isAgri;
+    var structSpec = sum.orientText + ' ' + spec.stack + '단, 경사 ' + spec.tiltDeg + '°' + (agri ? ', 영농형(높이 확보)' : '') + (roof ? ', 지붕용' : '');
+    return [
+      { sec:'1. 자재비' },
+      { name:'태양광 모듈', spec: spec.watt + 'W (' + spec.longMm + '×' + spec.shortMm + 'mm)', unit:'매', qty: sum.modules, price: Math.round(spec.watt * 280), note:'280원/W 기준' },
+      { name:'인버터', spec:'계통연계형 (용량에 맞춰 대수 구성)', unit:'kW', qty: Math.round(kw*10)/10, price: 80000, note:'' },
+      { name:'구조물 자재', spec: structSpec, unit:'100kW', qty: k100, price: agri ? 35000000 : 25000000, note:'100kW 단위 — 구조물 단가표로 교체 예정' },
+      { name:'접속반 · 모니터링', spec:'', unit:'식', qty: 1, price: Math.round(kw * 20000), note:'' },
+      { name:'전선 · 케이블', spec:'DC · AC', unit:'식', qty: 1, price: Math.round(kw * 50000), note:'어레이 총 길이 ' + fmt(sum.arrayLenM,0) + 'm 참고' },
+      { sec:'2. 공사비' },
+      { name:'구조물 설치', spec: structSpec, unit:'100kW', qty: k100, price: 10000000, note:'100kW 단위 — 구조물 단가표로 교체 예정' },
+      { name:'모듈 설치', spec:'', unit:'매', qty: sum.modules, price: 10000, note:'' },
+      { name:'전기공사', spec:'', unit:'kW', qty: Math.round(kw*10)/10, price: 100000, note:'' },
+      roof ? { name:'지붕 작업 (안전시설·방수 보강)', spec:'', unit:'식', qty: 1, price: Math.round(kw * 50000), note:'' }
+           : { name:'토목공사 (부지 정지·배수)', spec:'', unit:'식', qty: 1, price: Math.round(kw * 80000), note:'' },
+      { sec:'3. 경비' },
+      { name:'설계 · 감리', spec:'', unit:'식', qty: 1, price: Math.round(kw * 30000), note:'' },
+      { name:'인허가 · 측량', spec:'', unit:'식', qty: 1, price: Math.round(kw * 20000), note:'' },
+      { name:'계통연계 (한전 공사비 부담금)', spec:'', unit:'식', qty: 1, price: Math.round(kw * 50000), note:'한전 견적에 따라 달라짐' },
+      { name:'안전관리 · 보험', spec:'', unit:'식', qty: 1, price: Math.round(kw * 10000), note:'' }
+    ];
+  }
+
+  async function buildEstimateXlsx(){
+    var ExcelJS = await loadExcelJS();
+    var ll = state.lastLayout, spec = ll.spec, sum = layoutSummary(ll);
+    var wb = new ExcelJS.Workbook();
+    wb.creator = '태양광 부지 진단';
+    wb.created = new Date();
+    wb.calcProperties.fullCalcOnLoad = true;   // 엑셀에서 열 때 수식 다시 계산
+    var FONT = '맑은 고딕';
+    var thin = { style:'thin', color:{ argb:'FF9CA3AF' } };
+    var BORDER = { top:thin, left:thin, bottom:thin, right:thin };
+    var HEAD_FILL = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF1F3A5F' } };
+    var SEC_FILL = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFE8EEF6' } };
+    var SUB_FILL = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFF3F4F6' } };
+    var INPUT_FILL = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFFF4C2' } };
+    var TOTAL_FILL = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFDE7D3' } };
+    var NUM = '#,##0', NUM1 = '#,##0.0', NUM3 = '#,##0.000';
+    function style(cell, o){
+      cell.font = { name:FONT, size: o.size || 10, bold: !!o.bold, color: o.color ? { argb:o.color } : undefined };
+      cell.border = o.noBorder ? undefined : BORDER;
+      if(o.fill) cell.fill = o.fill;
+      if(o.fmt) cell.numFmt = o.fmt;
+      cell.alignment = { vertical:'middle', horizontal: o.align || 'left', wrapText: !!o.wrap };
+    }
+    function headRow(ws, r, labels){
+      labels.forEach(function(l, i){ var c = ws.getCell(r, i + 1); c.value = l; style(c, { bold:true, color:'FFFFFFFF', fill:HEAD_FILL, align:'center' }); });
+      ws.getRow(r).height = 22;
+    }
+    var addrText = addrSummary(sum.addrList, ', ');
+    var items = estimateItems(ll, sum);
+
+    // 시트 순서: 견적서(갑지) → 내역서 → 물량산출 → 배치도
+    var ws = wb.addWorksheet('견적서');
+    var wd = wb.addWorksheet('내역서', { views:[{ state:'frozen', ySplit:3 }] });
+    // ===== 내역서 =====
+    wd.columns = [{ width:6 },{ width:30 },{ width:34 },{ width:8 },{ width:12 },{ width:14 },{ width:18 },{ width:34 }];
+    wd.mergeCells('A1:H1');
+    wd.getCell('A1').value = '태양광 발전설비 공사 내역서';
+    style(wd.getCell('A1'), { size:15, bold:true, align:'center', noBorder:true });
+    wd.getRow(1).height = 30;
+    wd.mergeCells('A2:H2');
+    wd.getCell('A2').value = '현장: ' + addrText + '   |   설비용량 ' + fmt(sum.capacityKw, 2) + ' kWp   |   노란 칸(단가)은 직접 고칠 수 있습니다';
+    style(wd.getCell('A2'), { size:9, color:'FF6B7280', noBorder:true });
+    headRow(wd, 3, ['No','품명','규격','단위','수량','단가(원)','금액(원)','비고']);
+    var r = 4, no = 0, secRows = [], secStart = null, curSec = null, secSum = 0;
+    function closeSection(){
+      if(!curSec) return;
+      var c = wd.getCell(r, 2); c.value = curSec + ' 소계';
+      for(var i = 1; i <= 8; i++) style(wd.getCell(r, i), { bold:true, fill:SUB_FILL });
+      var cell = wd.getCell(r, 7);
+      cell.value = { formula:'SUM(G' + secStart + ':G' + (r - 1) + ')', result: secSum };
+      cell.numFmt = NUM; cell.alignment = { horizontal:'right', vertical:'middle' };
+      secRows.push({ name:curSec, row:r, sum:secSum }); r++; secSum = 0;
+    }
+    items.forEach(function(it){
+      if(it.sec){
+        closeSection();
+        curSec = it.sec;
+        wd.mergeCells(r, 1, r, 8);
+        wd.getCell(r, 1).value = it.sec;
+        style(wd.getCell(r, 1), { bold:true, fill:SEC_FILL });
+        r++; secStart = r; return;
+      }
+      no++;
+      var vals = [no, it.name, it.spec, it.unit, it.qty, it.price, null, it.note];
+      vals.forEach(function(v, i){ var c = wd.getCell(r, i + 1); c.value = v; style(c, { align: i === 0 || i === 3 ? 'center' : (i >= 4 && i <= 6 ? 'right' : 'left'), wrap: i === 2 || i === 7 }); });
+      wd.getCell(r, 5).numFmt = it.unit === '100kW' ? NUM3 : (it.unit === 'kW' ? NUM1 : NUM);
+      wd.getCell(r, 6).numFmt = NUM; wd.getCell(r, 6).fill = INPUT_FILL;
+      wd.getCell(r, 7).value = { formula:'ROUND(E' + r + '*F' + r + ',0)', result: Math.round(it.qty * it.price) };
+      secSum += Math.round(it.qty * it.price);
+      wd.getCell(r, 7).numFmt = NUM;
+      r++;
+    });
+    closeSection();
+    var directRow = r;
+    wd.getCell(r, 2).value = '직접공사비 합계';
+    for(var ci = 1; ci <= 8; ci++) style(wd.getCell(r, ci), { bold:true, fill:TOTAL_FILL });
+    var directSum = secRows.reduce(function(t, s){ return t + s.sum; }, 0);
+    wd.getCell(r, 7).value = { formula: secRows.map(function(s){ return 'G' + s.row; }).join('+'), result: directSum };
+    wd.getCell(r, 7).numFmt = NUM; wd.getCell(r, 7).alignment = { horizontal:'right', vertical:'middle' };
+    r += 2;
+    wd.getCell(r, 2).value = '※ 단가는 임시값입니다. 구조물 단가표(100kW 단위)를 받으면 "구조물 자재·설치" 단가를 교체하세요.';
+    style(wd.getCell(r, 2), { size:9, color:'FF6B7280', noBorder:true });
+
+    // ===== 견적서 (갑지) — 첫 번째 시트 =====
+    ws.columns = [{ width:4 },{ width:22 },{ width:20 },{ width:20 },{ width:24 },{ width:4 }];
+    ws.mergeCells('B2:E2');
+    ws.getCell('B2').value = '견    적    서';
+    style(ws.getCell('B2'), { size:20, bold:true, align:'center', noBorder:true });
+    ws.getRow(2).height = 40;
+    var info = [
+      ['현장명', addrText],
+      ['설비 구분', facilityTypeText()],
+      ['설비 용량', fmt(sum.capacityKw, 2) + ' kWp  (모듈 ' + fmt(sum.modules, 0) + '매)'],
+      ['모듈 규격', spec.watt + 'W  ' + spec.longMm + '×' + spec.shortMm + 'mm, ' + sum.orientText + ' ' + spec.stack + '단, 경사 ' + spec.tiltDeg + '°'],
+      ['100kW 단위 수량', fmt(sum.capacityKw / 100, 3) + ' (× 100kW)'],
+      ['작성일', todayStr('.')]
+    ];
+    var rr = 4;
+    info.forEach(function(kvp){
+      ws.getCell(rr, 2).value = kvp[0]; style(ws.getCell(rr, 2), { bold:true, fill:SEC_FILL });
+      ws.mergeCells(rr, 3, rr, 5); ws.getCell(rr, 3).value = kvp[1]; style(ws.getCell(rr, 3), {});
+      style(ws.getCell(rr, 4), {}); style(ws.getCell(rr, 5), {});
+      rr++;
+    });
+    rr++;
+    ['구분','금액(원)','kW당(원)','비고'].forEach(function(l, i){ var c = ws.getCell(rr, i + 2); c.value = l; style(c, { bold:true, color:'FFFFFFFF', fill:HEAD_FILL, align:'center' }); });
+    rr++;
+    var kwCell = '$C$' + (rr + 20);   // 아래에 숨겨둔 용량 셀 참조
+    var lines = [];
+    secRows.forEach(function(s){ lines.push({ label:s.name.replace(/^\d+\.\s*/, ''), formula:"'내역서'!G" + s.row, val:s.sum }); });
+    lines.push({ label:'직접공사비 계', formula:"'내역서'!G" + directRow, bold:true, val:directSum });
+    lines.push({ label:'일반관리비', rate:0.05, note:'직접공사비 × 비율' });
+    lines.push({ label:'이윤', rate:0.10, note:'(직접공사비+일반관리비) × 비율' });
+    lines.push({ label:'공급가액', bold:true });
+    lines.push({ label:'부가가치세 (10%)' });
+    lines.push({ label:'총 견적금액 (VAT 포함)', bold:true, total:true });
+    // 미리 계산한 값(엑셀 수식과 같은 결과) — 수식을 다시 계산하지 않는 뷰어에서도 금액이 보이도록
+    var vAdmin = Math.round(directSum * 0.05), vProfit = Math.round((directSum + vAdmin) * 0.10);
+    var vSupply = directSum + vAdmin + vProfit, vVat = Math.round(vSupply * 0.1);
+    var preset = { '일반관리비':vAdmin, '이윤':vProfit, '공급가액':vSupply, '부가가치세 (10%)':vVat, '총 견적금액 (VAT 포함)':vSupply + vVat };
+    var kwVal = Math.round(sum.capacityKw * 100) / 100;
+    var rowOf = {};
+    lines.forEach(function(L, i){
+      var v = L.val != null ? L.val : preset[L.label];
+      var row = rr + i; rowOf[L.label] = row;
+      ws.getCell(row, 2).value = L.label;
+      var f = L.formula;
+      if(L.label === '일반관리비') f = 'ROUND(C' + rowOf['직접공사비 계'] + '*E' + row + ',0)';
+      if(L.label === '이윤') f = 'ROUND((C' + rowOf['직접공사비 계'] + '+C' + rowOf['일반관리비'] + ')*E' + row + ',0)';
+      if(L.label === '공급가액') f = 'C' + rowOf['직접공사비 계'] + '+C' + rowOf['일반관리비'] + '+C' + rowOf['이윤'];
+      if(L.label === '부가가치세 (10%)') f = 'ROUND(C' + rowOf['공급가액'] + '*0.1,0)';
+      if(L.label === '총 견적금액 (VAT 포함)') f = 'C' + rowOf['공급가액'] + '+C' + rowOf['부가가치세 (10%)'];
+      ws.getCell(row, 3).value = { formula:f, result:v };
+      ws.getCell(row, 4).value = { formula:'IF(' + kwCell + '>0,ROUND(C' + row + '/' + kwCell + ',0),0)', result: kwVal > 0 ? Math.round(v / kwVal) : 0 };
+      [2,3,4,5].forEach(function(cc){ style(ws.getCell(row, cc), { bold:!!L.bold, fill: L.total ? TOTAL_FILL : (L.bold ? SUB_FILL : undefined), align: cc === 2 ? 'left' : 'right', fmt: cc === 3 || cc === 4 ? NUM : undefined }); });
+      if(L.rate != null){
+        ws.getCell(row, 5).value = L.rate; ws.getCell(row, 5).numFmt = '0.0%'; ws.getCell(row, 5).fill = INPUT_FILL;
+        ws.getCell(row, 5).note = L.note;
+      }
+    });
+    rr += lines.length + 1;
+    ws.mergeCells(rr, 2, rr + 1, 5);
+    ws.getCell(rr, 2).value = '※ 위 금액은 04번 모듈 배치 물량과 임시 단가로 계산한 참고 견적입니다. 노란 칸(단가·비율)을 고치면 자동으로 다시 계산됩니다. 상세 내역은 "내역서", 물량 근거는 "물량산출", 배치 그림은 "배치도" 시트를 보세요.';
+    style(ws.getCell(rr, 2), { size:9, color:'FF6B7280', wrap:true, noBorder:true });
+    // 용량 셀 (kW당 금액 계산용)
+    var kwRow = parseInt(kwCell.replace(/\D/g, ''), 10);
+    ws.getCell(kwRow, 2).value = '설비용량(kWp)'; style(ws.getCell(kwRow, 2), { size:9, color:'FF9CA3AF', noBorder:true });
+    ws.getCell(kwRow, 3).value = kwVal;
+    ws.getRow(kwRow).hidden = true;   // kW당 금액 계산에만 쓰는 칸 style(ws.getCell(kwRow, 3), { size:9, color:'FF9CA3AF', noBorder:true, fmt:'#,##0.00' });
+    ws.pageSetup = { paperSize:9, orientation:'portrait', fitToPage:true, fitToWidth:1, fitToHeight:1 };
+    wd.pageSetup = { paperSize:9, orientation:'portrait', fitToPage:true, fitToWidth:1, fitToHeight:0 };
+
+    // ===== 물량산출 =====
+    var wq = wb.addWorksheet('물량산출', { views:[{ state:'frozen', ySplit:0 }] });
+    wq.columns = [{ width:16 },{ width:30 },{ width:14 },{ width:14 },{ width:14 },{ width:14 },{ width:16 }];
+    wq.mergeCells('A1:G1'); wq.getCell('A1').value = '물량 산출 근거 (04번 모듈 배치 결과)';
+    style(wq.getCell('A1'), { size:14, bold:true, noBorder:true }); wq.getRow(1).height = 26;
+    var q = 3;
+    var basics = [
+      ['설비 구분', facilityTypeText()],
+      ['모듈', spec.watt + 'W, ' + spec.longMm + '×' + spec.shortMm + 'mm'],
+      ['모듈 놓는 방향', sum.orientText + ' / ' + spec.stack + '단 / 경사각 ' + spec.tiltDeg + '°'],
+      ['모듈 방향', sum.azText],
+      ['행간(pitch)', ll.pitch.toFixed(2) + ' m  (동지 정오 태양고도 ' + ll.sunAltDeg.toFixed(1) + '° 기준)'],
+      ['테이블 크기', '가로 ' + ll.rowLenM.toFixed(3) + ' m × 세로(평면) ' + ll.tableDepth.toFixed(3) + ' m'],
+      ['차광률(GCR)', ll.gcrPct.toFixed(1) + ' %'],
+      ['경계 이격', spec.setback + ' m'],
+      ['모듈 매수', fmt(sum.modules, 0) + ' 매'],
+      ['테이블 수', fmt(sum.tables, 0) + ' 개'],
+      ['어레이(구조물 줄) 수', fmt(sum.arrays.length, 0) + ' 열,  총 길이 ' + fmt(sum.arrayLenM, 1) + ' m'],
+      ['설비용량', fmt(sum.capacityKw, 2) + ' kWp'],
+      ['100kW 단위 수량', fmt(sum.capacityKw / 100, 3) + '  (100kW 블록 ' + Math.ceil(sum.capacityKw / 100 - 1e-9) + '개)']
+    ];
+    basics.forEach(function(b){
+      wq.getCell(q, 1).value = b[0]; style(wq.getCell(q, 1), { bold:true, fill:SEC_FILL });
+      wq.mergeCells(q, 2, q, 4); wq.getCell(q, 2).value = b[1]; style(wq.getCell(q, 2), {}); style(wq.getCell(q, 3), {}); style(wq.getCell(q, 4), {});
+      q++;
+    });
+    q++;
+    wq.getCell(q, 1).value = '■ 필지별'; style(wq.getCell(q, 1), { bold:true, noBorder:true }); q++;
+    headRow(wq, q, ['지번','주소','지목','면적(㎡)','테이블(개)','모듈(매)','용량(kWp)']); q++;
+    var perMap = tablesPerParcel(ll);
+    state.parcels.forEach(function(p){
+      var t = perMap[p.pnu] || 0;
+      [jibunOf(p), p.addressText, jimokOf(p), Math.round(p.areaM2 || 0), t, t * spec.stack, Math.round(t * spec.stack * spec.watt / 10) / 100].forEach(function(v, i){
+        var c = wq.getCell(q, i + 1); c.value = v; style(c, { align: i >= 3 ? 'right' : 'left', fmt: i === 6 ? '#,##0.00' : (i >= 3 ? NUM : undefined) });
+      });
+      q++;
+    });
+    q++;
+    wq.getCell(q, 1).value = '■ 어레이별 (북쪽 줄부터, 같은 줄은 서쪽부터 — 배치도의 A번호와 같음)'; style(wq.getCell(q, 1), { bold:true, noBorder:true }); q++;
+    headRow(wq, q, ['어레이','필지','테이블(개)','모듈(매)','길이(m)','용량(kWp)','']); q++;
+    var arrStart = q;
+    sum.arrays.forEach(function(a){
+      var p = parcelOfPoint([a.cx, a.cy]);
+      ['A' + a.no, p ? jibunOf(p) : '-', a.n, a.n * spec.stack, Math.round(a.lengthM * 100) / 100, Math.round(a.n * spec.stack * spec.watt / 10) / 100].forEach(function(v, i){
+        var c = wq.getCell(q, i + 1); c.value = v; style(c, { align: i >= 2 ? 'right' : 'left', fmt: i >= 4 ? '#,##0.00' : (i >= 2 ? NUM : undefined) });
+      });
+      q++;
+    });
+    wq.getCell(q, 1).value = '합계'; style(wq.getCell(q, 1), { bold:true, fill:SUB_FILL });
+    style(wq.getCell(q, 2), { fill:SUB_FILL });
+    ['C','D','E','F'].forEach(function(col, i){
+      var c = wq.getCell(q, i + 3);
+      var tot = [sum.tables, sum.modules, Math.round(sum.arrayLenM * 100) / 100, Math.round(sum.capacityKw * 100) / 100][i];
+      c.value = { formula:'SUM(' + col + arrStart + ':' + col + (q - 1) + ')', result: tot };
+      style(c, { bold:true, fill:SUB_FILL, align:'right', fmt: i >= 2 ? '#,##0.00' : NUM });
+    });
+
+    // ===== 배치도 (그림) =====
+    var wi = wb.addWorksheet('배치도');
+    wi.getCell('A1').value = '모듈 배치도 — ' + addrText + ' (정북 위쪽, 파란색 = 모듈, 주황 선 = 필지 경계)';
+    style(wi.getCell('A1'), { bold:true, noBorder:true });
+    try{
+      var png = renderLayoutPng(ll, sum.arrays);
+      var imgId = wb.addImage({ base64: png, extension:'png' });
+      var im = new Image();
+      await new Promise(function(res){ im.onload = res; im.onerror = res; im.src = png; });
+      var iw = 900, ih = Math.round(900 * (im.height || 1) / (im.width || 1));
+      wi.addImage(imgId, { tl:{ col:0, row:2 }, ext:{ width:iw, height:ih } });
+    }catch(e){ wi.getCell('A3').value = '배치도 그림을 만들지 못했습니다. CAD(.dxf) 파일을 참고하세요.'; }
+
+    wq.pageSetup = { paperSize:9, orientation:'portrait', fitToPage:true, fitToWidth:1, fitToHeight:0 };
+    wi.pageSetup = { paperSize:9, orientation:'landscape', fitToPage:true, fitToWidth:1, fitToHeight:1 };
+    var buf = await wb.xlsx.writeBuffer();
+    var name = state.parcels.length ? shortParcelName(state.parcels[0]) : '부지';
+    downloadBlob(new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+      '태양광상세견적_' + safeFileName(name) + '_' + todayStr('') + '.xlsx');
+  }
+
+  document.getElementById('exportXlsxBtn').addEventListener('click', function(){
+    if(!layoutReady()){ exportStatus('먼저 주소를 추가해 모듈 배치 결과가 나오게 해주세요.', true); return; }
+    var btn = this; btn.disabled = true;
+    exportStatus('견적서 엑셀을 만드는 중…');
+    buildEstimateXlsx().then(function(){
+      exportStatus('상세견적(.xlsx)을 내려받았습니다.');
+    }).catch(function(e){
+      exportStatus('엑셀을 만들지 못했습니다: ' + (e && e.message ? e.message : e), true);
+    }).then(function(){ btn.disabled = false; });
+  });
 
   // ---------- economics (참고용) ----------
   var lastCapacityKw = 0;
