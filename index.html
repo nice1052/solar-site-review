@@ -156,6 +156,7 @@ table.zonelist tr.totalrow td{font-weight:700;border-top:1.5px solid var(--accen
 .field{display:flex;flex-direction:column;gap:4px;}
 .field label{font-size:10.5px;color:var(--muted);letter-spacing:.02em;}
 .field input,.field select{font-family:var(--mono);font-size:13px;padding:6px 8px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--ink);width:100%;}
+.field input[readonly]{background:transparent;border-style:dashed;cursor:default;}
 
 #mapview{width:100%;height:320px;border-radius:10px;margin-bottom:12px;background:var(--surface-2);}
 #mapview .leaflet-control-attribution{font-size:9px;}
@@ -369,7 +370,8 @@ a{color:var(--accent);}
               </select>
             </div>
             <div class="field"><label>경사각(°)</label><input id="tiltAngle" type="number" value="30" min="0" max="45"></div>
-            <div class="field"><label>경계 이격(m)</label><input id="setbackM" type="number" value="3" min="0" max="20" step="0.5"></div>
+            <div class="field"><label>경계 이격(m) — 자동 계산</label><input id="setbackM" type="number" value="3" min="0" max="20" step="0.1" readonly title="모듈 크기·경사각·단수·설비 구분으로 자동 계산됩니다 (아래 설명 참고)"></div>
+            <div class="field" id="groundClearField"><label>구조물 지상고(m)</label><input id="groundClearM" type="number" value="0.5" min="0" max="10" step="0.1" title="땅에서 모듈 아래쪽(앞단)까지 높이. 경계 이격 계산에 쓰입니다"></div>
             <div class="field"><label>가용면적비율(%)</label><input id="usableRatio" type="number" value="75" min="30" max="100" step="1"></div>
           </div>
 
@@ -430,7 +432,7 @@ a{color:var(--accent);}
             <button class="btn primary" id="exportXlsxBtn" type="button">📑 상세견적 엑셀 다운로드 (.xlsx)</button>
             <span class="note" id="exportLayoutStatus" style="margin:0;"></span>
           </div>
-          <div class="note">위 배치 결과(필지 경계·건물·모듈 한 장 한 장)를 실제 크기(mm, 정북이 위쪽)로 CAD 도면에 옮깁니다. 오토캐드·캐디안·ZWCAD 등에서 열 수 있어요. 엑셀 견적서는 회사 산출내역서 양식(견적서(상세)·공사비 집계표·공사비 내역서)에 이 배치 물량(모듈 매수, 인버터·말뚝·장비 수량을 100kW·1MW 단위로 환산)을 채워 넣고, 물량산출·배치도 시트를 덧붙입니다. 단가·제비율은 양식 값 그대로이며, 엑셀에서 열면 금액이 자동 계산됩니다.</div>
+          <div class="note">위 배치 결과(필지 경계·건물·모듈 한 장 한 장)를 실제 크기(mm, 정북이 위쪽)로 회사 도면 양식(A3 도곽·표제란·NOTE·방위표)에 옮깁니다. 축척은 A3 한 장에 들어가는 표준 축척(1:500, 1:700 …)으로 자동으로 정하고, 위성사진도 같은 축척으로 밑에 깔아 .zip으로 묶어 드려요(압축을 풀고 .dxf를 여세요). 오토캐드·캐디안·ZWCAD 등에서 열 수 있어요. 엑셀 견적서는 회사 산출내역서 양식(견적서(상세)·공사비 집계표·공사비 내역서)에 이 배치 물량(모듈 매수, 인버터·말뚝·장비 수량을 100kW·1MW 단위로 환산)을 채워 넣고, 물량산출·배치도 시트를 덧붙입니다. 단가·제비율은 양식 값 그대로이며, 엑셀에서 열면 금액이 자동 계산됩니다.</div>
         </div>
 
         <div class="card">
@@ -651,10 +653,18 @@ a{color:var(--accent);}
     }
     return Math.abs(a)/2;
   }
+  // 위도에 따른 경위도 1°의 실제 길이(m) — WGS84 타원체 기준.
+  // (적도 값 111,320m를 그대로 쓰면 위도 36°에서 남북 거리가 약 0.3% 길게 계산됨)
+  function metersPerDegree(lat0){
+    var f = lat0 * Math.PI/180;
+    return {
+      lat: 111132.954 - 559.822*Math.cos(2*f) + 1.175*Math.cos(4*f),
+      lon: 111412.84*Math.cos(f) - 93.5*Math.cos(3*f) + 0.118*Math.cos(5*f)
+    };
+  }
   function toXY(lon, lat, lon0, lat0){
-    var mPerDegLat = 111320;
-    var mPerDegLon = 111320 * Math.cos(lat0 * Math.PI/180);
-    return [ (lon-lon0)*mPerDegLon, (lat-lat0)*mPerDegLat ];
+    var m = metersPerDegree(lat0);
+    return [ (lon-lon0)*m.lon, (lat-lat0)*m.lat ];
   }
   function convexHull(points){
     var pts = points.slice().sort(function(a,b){ return a[0]-b[0] || a[1]-b[1]; });
@@ -1003,9 +1013,8 @@ a{color:var(--accent);}
   // inverse of toXY() — local projected meters back to [lon, lat]. Since rect.angle is always 0
   // (layout frame fixed to true north), no de-rotation is needed before converting back.
   function fromXY(x, y, lon0, lat0){
-    var mPerDegLat = 111320;
-    var mPerDegLon = 111320 * Math.cos(lat0 * Math.PI/180);
-    return [ lon0 + x/mPerDegLon, lat0 + y/mPerDegLat ];
+    var m = metersPerDegree(lat0);
+    return [ lon0 + x/m.lon, lat0 + y/m.lat ];
   }
 
   function recomputeAll(){
@@ -1403,7 +1412,7 @@ a{color:var(--accent);}
   // 2mm짜리 모듈로 수백만 개를 배치하려다 멈추므로, 입력이 잠시 멈춘 뒤에만 계산한다.
   var simTimer = null;
   function scheduleSimulation(){ clearTimeout(simTimer); simTimer = setTimeout(runSimulation, 400); }
-  ['moduleWatt','moduleLong','moduleShort','tiltAngle','setbackM','usableRatio'].forEach(function(id){
+  ['moduleWatt','moduleLong','moduleShort','tiltAngle','usableRatio','groundClearM'].forEach(function(id){
     document.getElementById(id).addEventListener('input', scheduleSimulation);
   });
   ['stackCount','moduleOrient'].forEach(function(id){
@@ -1427,9 +1436,15 @@ a{color:var(--accent);}
         for(var x0 = uMinX; x0 + longM <= uMaxX + 1e-9; x0 += longM){
           var x1 = x0 + longM;
           var ix0 = x0+EPS, ix1 = Math.max(ix0, x1-EPS), iy0 = y0+EPS, iy1 = Math.max(iy0, y1-EPS);
-          var corners = [[ix0,iy0],[ix1,iy0],[ix1,iy1],[ix0,iy1]];
+          // 경계 이격: 테이블을 이격거리(s)만큼 사방으로 키운 사각형의 네 모서리와 네 변 가운데가
+          // 모두 필지 안에 있어야 배치 → 비스듬한 경계선에서도 이격거리가 지켜진다.
+          // (합쳐서 배치할 때 서로 붙은 필지 경계는 양쪽 다 필지 안이므로 이격하지 않음)
+          var s = spec.setback, mx = (ix0+ix1)/2, my = (iy0+iy1)/2;
+          var corners = [[ix0,iy0],[ix1,iy0],[ix1,iy1],[ix0,iy1],
+                         [ix0-s,iy0-s],[ix1+s,iy0-s],[ix1+s,iy1+s],[ix0-s,iy1+s],
+                         [mx,iy0-s],[ix1+s,my],[mx,iy1+s],[ix0-s,my]];
           var ok = true;
-          for(var k=0;k<4;k++){ if(!pointInAny(corners[k], rotatedPolys)){ ok=false; break; } }
+          for(var k=0;k<corners.length;k++){ if(!pointInAny(corners[k], rotatedPolys)){ ok=false; break; } }
           if(ok) tables.push({x0:x0,y0:y0,x1:x1,y1:y1});
         }
         if(tables.length > MAX_TABLES) break;
@@ -1619,6 +1634,25 @@ a{color:var(--accent);}
     // 경사·패널 지붕: 지붕면에 붙여 설치하므로 앞뒤 그늘 간격 없이 촘촘히 (줄 사이 5cm)
     var roofPitched = spec.isRoof && document.getElementById('roofType').value === 'pitched';
     if(roofPitched) pitch = tableDepth + 0.05;
+
+    // ---------- 경계 이격거리 자동 계산 (입력칸은 읽기 전용) ----------
+    // 지상형: 구조물 가장 높은 곳(지상고 + 모듈 경사 높이)이 동지 정오에 드리우는 그림자 길이만큼
+    //         필지 경계에서 띄워, 우리 그림자가 이웃 땅에 넘어가지 않게 한다(행간 계산과 같은 원리).
+    //         0.1m 단위로 올림, 관리 통로를 위해 최소 1m.
+    // 지붕형: 지붕 가장자리 안전 이격 1m 고정.
+    var groundClear = Math.max(0, parseFloat(document.getElementById('groundClearM').value) || 0);
+    var setbackCalc;
+    if(spec.isRoof){
+      spec.setback = 1;
+      setbackCalc = '지붕 가장자리 안전 이격 1m 고정';
+    } else {
+      var structH = groundClear + tableRise;
+      var shadowLen = structH / Math.tan(sunAltRad);
+      spec.setback = Math.max(1, Math.ceil(shadowLen * 10 - 1e-6) / 10);
+      setbackCalc = '(지상고 ' + groundClear.toFixed(1) + 'm + 모듈 경사 높이 ' + tableRise.toFixed(2) + 'm) ÷ tan(동지 태양고도 ' + sunAltDeg.toFixed(1) + '°) = ' +
+        shadowLen.toFixed(2) + 'm → ' + spec.setback.toFixed(1) + 'm' + (shadowLen < 1 ? ' (최소 1m)' : '');
+    }
+    document.getElementById('setbackM').value = spec.setback.toFixed(1);
     var gcrPct = pitch>0 ? (tableDepth/pitch*100) : 0;
 
     // 배치 대상 필지 묶음: 합쳐서 배치 → 한 묶음(공통 방향), 필지마다 → 필지별 묶음(필지별 방향)
@@ -1684,7 +1718,7 @@ a{color:var(--accent);}
     if(spec.isRoof){
       note.textContent = roofCount
         ? ('🏠 지붕 태양광: 필지 안 건물 ' + roofCount + '개 동(지붕 면적 합 ' + fmt(roofAreaM2,0) + '㎡, 약 ' + fmt(pyeong(roofAreaM2),0) + '평)의 외곽선 안에만 배치했습니다. ' +
-           '지붕 가장자리에서 ' + spec.setback + 'm 띄웠고, ' +
+           '지붕 가장자리에서 ' + spec.setback + 'm 띄웠고(안전 이격 고정), ' +
            (roofPitched ? '경사·패널 지붕이라 지붕면에 붙여 앞뒤 간격 없이 배치했습니다(경사각 ' + spec.tiltDeg + '° = 지붕 기울기로 계산). '
                         : '평지붕이라 거치대로 ' + spec.tiltDeg + '° 세우고 동지 기준 앞줄 그늘이 닿지 않게 행간 ' + pitch.toFixed(2) + 'm를 두었습니다. ') +
            (document.getElementById('roofAutoAlign').checked ? '모듈 줄은 건물마다 긴 변 방향에 맞췄습니다. ' : '모듈 방향: ' + azimuthText(globalAz) + '. ') +
@@ -1693,12 +1727,13 @@ a{color:var(--accent);}
     } else note.textContent = (nParcels>1 ? (perParcel ? (nParcels+'개 필지에 각각 따로 배치했습니다. ') : (nParcels+'개 필지를 하나로 합쳐 계산했습니다. ')) : '') +
       (perParcel ? '모듈 방향은 필지별 설정을 따릅니다. ' : '모듈 방향: ' + azimuthText(globalAz) + '. ') +
       (globalAz !== 0 || perParcel ? '행간은 정남 기준으로 계산해 방향을 틀어도 그늘 여유가 줄지 않도록 했습니다. ' : '') +
-      '설계 기준: 위도 ' + lat.toFixed(2) + '°N 동지 태양고도 ' + sunAltDeg.toFixed(1) + '°에서 앞줄 그늘이 뒷줄에 닿지 않도록 행간(pitch) ' + pitch.toFixed(2) + 'm 적용(경사각이 커질수록 그늘이 길어져 행간도 늘어납니다). 각 테이블(' + (portrait ? '세로형' : '가로형') + ', 가로 ' + rowLenM.toFixed(2) + 'm × 세로 ' + tableDepth.toFixed(2) + 'm, ' + spec.stack + '단 모듈 ' + spec.stack + '매 탑재)의 네 꼭짓점이 추가된 필지들 중 하나에라도 들어가는지 하나씩 검사해 배치했습니다(필지 경계선이 서로 붙어있으면 그 경계를 넘어서도 배치됩니다). 면적기준 참고치는 가용면적비율 ' + spec.usableRatioPct + '%만 적용한 단순 상한값입니다.' +
+      '설계 기준: 위도 ' + lat.toFixed(2) + '°N 동지 태양고도 ' + sunAltDeg.toFixed(1) + '°에서 앞줄 그늘이 뒷줄에 닿지 않도록 행간(pitch) ' + pitch.toFixed(2) + 'm 적용(경사각이 커질수록 그늘이 길어져 행간도 늘어납니다). 각 테이블(' + (portrait ? '세로형' : '가로형') + ', 가로 ' + rowLenM.toFixed(2) + 'm × 세로 ' + tableDepth.toFixed(2) + 'm, ' + spec.stack + '단 모듈 ' + spec.stack + '매 탑재)가 필지 경계에서 이격거리만큼 떨어져 있는지 하나씩 검사해 배치했습니다(필지 경계선이 서로 붙어있으면 그 경계를 넘어서도 배치됩니다). 경계 이격 = ' + setbackCalc + '. 면적기준 참고치는 가용면적비율 ' + spec.usableRatioPct + '%만 적용한 단순 상한값입니다.' +
       (spec.isAgri ? ' 영농형 태양광은 1단 고정 + 차광률(GCR) 30% 이내를 만족하도록 행간을 자동으로 넓혀 계산했습니다(현재 ' + gcrPct.toFixed(1) + '%).' : '');
 
     state.lastLayout = { tables: allTables, groups: groups, spec: spec, pitch: pitch, tableDepth: tableDepth,
       rowLenM: rowLenM, slopeLenM: slopeLenM, portrait: portrait, capacityKw: capacityKw, gcrPct: gcrPct,
-      globalAz: globalAz, perParcel: perParcel, roofPitched: roofPitched, sunAltDeg: sunAltDeg };
+      globalAz: globalAz, perParcel: perParcel, roofPitched: roofPitched, sunAltDeg: sunAltDeg,
+      groundClear: groundClear, setbackCalc: setbackCalc };
     updateMapModules();
     updateEconomics(capacityKw);
   }
@@ -1798,192 +1833,271 @@ a{color:var(--accent);}
     };
   }
 
-  // ---- DXF (AutoCAD R12 형식: 오토캐드·캐디안·ZWCAD·BricsCAD 등에서 대부분 열림) ----
-  // 한글 CAD 표준인 CP949(ANSI_949) 인코딩으로 저장한다. 브라우저에는 CP949 '인코더'가 없으므로
-  // 내장 EUC-KR '디코더'로 2바이트 조합을 한 번 풀어 역변환표를 만든다(처음 한 번만, 수십 ms).
-  var cp949Table = null;
-  function getCp949Table(){
-    if(cp949Table) return cp949Table;
-    cp949Table = {};
-    var dec = new TextDecoder('euc-kr'), buf = new Uint8Array(2);
-    for(var hi = 0x81; hi <= 0xFE; hi++){
-      for(var lo = 0x41; lo <= 0xFE; lo++){
-        buf[0] = hi; buf[1] = lo;
-        var ch = dec.decode(buf);
-        if(ch.length === 1 && ch !== '\uFFFD' && cp949Table[ch] === undefined) cp949Table[ch] = (hi << 8) | lo;
-      }
-    }
-    return cp949Table;
-  }
-  function encodeCp949(str){
-    var tbl = getCp949Table(), out = [];
-    for(var i = 0; i < str.length; i++){
-      var code = str.charCodeAt(i);
-      if(code < 0x80){ out.push(code); continue; }
-      var v = tbl[str.charAt(i)];
-      if(v !== undefined){ out.push(v >> 8, v & 0xFF); continue; }
-      // CP949에 없는 글자는 CAD 유니코드 표기(\U+XXXX)로
-      var h = code.toString(16).toUpperCase(); while(h.length < 4) h = '0' + h;
-      ('\\U+' + h).split('').forEach(function(c){ out.push(c.charCodeAt(0)); });
-    }
-    return new Uint8Array(out);
-  }
-  function dxfStr(s){ return String(s == null ? '' : s).replace(/[\r\n]+/g, ' '); }
-  function DxfWriter(){ this.out = []; }
-  DxfWriter.prototype.g = function(code, v){ this.out.push(code, v); };
-  DxfWriter.prototype.n = function(v){ return (Math.round(v * 10) / 10).toFixed(1); };
-  DxfWriter.prototype.poly = function(layer, pts, closed){
-    var self = this;
-    this.g(0,'POLYLINE'); this.g(8,layer); this.g(66,1); this.g(10,'0.0'); this.g(20,'0.0'); this.g(30,'0.0'); this.g(70, closed ? 1 : 0);
-    pts.forEach(function(p){ self.g(0,'VERTEX'); self.g(8,layer); self.g(10,self.n(p[0])); self.g(20,self.n(p[1])); self.g(30,'0.0'); });
-    this.g(0,'SEQEND'); this.g(8,layer);
-  };
-  DxfWriter.prototype.line = function(layer, a, b){
-    this.g(0,'LINE'); this.g(8,layer);
-    this.g(10,this.n(a[0])); this.g(20,this.n(a[1])); this.g(30,'0.0');
-    this.g(11,this.n(b[0])); this.g(21,this.n(b[1])); this.g(31,'0.0');
-  };
-  // align: 'left' | 'center'  (center = 가운데·중간 정렬)
-  DxfWriter.prototype.text = function(layer, p, h, str, align){
-    this.g(0,'TEXT'); this.g(8,layer); this.g(7,'KOR');
-    this.g(10,this.n(p[0])); this.g(20,this.n(p[1])); this.g(30,'0.0');
-    this.g(40,this.n(h)); this.g(1,dxfStr(str));
-    if(align === 'center'){ this.g(72,1); this.g(11,this.n(p[0])); this.g(21,this.n(p[1])); this.g(31,'0.0'); this.g(73,2); }
-  };
-  DxfWriter.prototype.solid = function(layer, a, b, c){
-    // 삼각형 채움 (북쪽 화살표용)
-    this.g(0,'SOLID'); this.g(8,layer);
-    this.g(10,this.n(a[0])); this.g(20,this.n(a[1])); this.g(30,'0.0');
-    this.g(11,this.n(b[0])); this.g(21,this.n(b[1])); this.g(31,'0.0');
-    this.g(12,this.n(c[0])); this.g(22,this.n(c[1])); this.g(32,'0.0');
-    this.g(13,this.n(c[0])); this.g(23,this.n(c[1])); this.g(33,'0.0');
-  };
+  // ---- 배치도 DXF (회사 도면 양식: A3 도곽 · 표제란 · NOTE · 방위표) ----
+  // DXF 작성은 @tarikjabiri/dxf(2.9.0, AutoCAD 2007 형식·UTF-8)를 버튼 누를 때만 불러와서 한다.
+  // 도곽·표제란 선과 글자는 회사 가배치도(DWG)에서 그대로 뽑아 A3 용지 좌표(mm)로 저장한 것(KLES_FRAME).
+  //   ['L',x1,y1,x2,y2] 선 / ['P',닫힘,x,y,...] 폴리선 / ['S',x1,y1,...x4,y4] 채움 / ['C',x,y,r] 원
+  //   ['T',x,y,높이,글자,붙임점(1~9),바꿀칸] 글자 — 바꿀칸: scale·addr·date·title·note
+  var KLES_FRAME = [["P",0,423.24,297.76,423.24,5.1,5.1,5.1,5.1,297.76],["P",0,214.17,297.76,214.17,302.86],["P",0,214.17,5.1,214.17,0.0],["P",0,211.23,0.0,214.17,5.1,217.11,0.0],["P",0,5.1,151.43,0.0,151.43],["P",0,0.0,154.37,5.1,151.43,0.0,148.49],["P",0,423.24,151.43,428.34,151.43],["P",0,428.34,148.49,423.24,151.43,428.34,154.37],["P",0,401.57,297.76,401.57,302.86],["P",0,401.57,5.1,401.57,0.0],["P",0,374.8,297.76,374.8,302.86],["P",0,374.8,5.1,374.8,0.0],["P",0,348.03,297.76,348.03,302.86],["P",0,348.03,5.1,348.03,0.0],["P",0,321.25,297.76,321.25,302.86],["P",0,423.24,5.27,423.24,8.12,423.24,66.28,321.25,66.28,321.25,5.1,321.25,0.0],["P",0,294.48,297.76,294.48,302.86],["P",0,294.48,5.1,294.48,0.0],["P",0,267.71,297.76,267.71,302.86],["P",0,267.71,5.1,267.71,0.0],["P",0,240.94,297.76,240.94,302.86],["P",0,240.94,5.1,240.94,0.0],["P",0,187.4,297.76,187.4,302.86],["P",0,187.4,5.1,187.4,0.0],["P",0,160.63,297.76,160.63,302.86],["P",0,160.63,5.1,160.63,0.0],["P",0,133.86,297.76,133.86,302.86],["P",0,133.86,5.1,133.86,0.0],["P",0,107.08,297.76,107.08,302.86],["P",0,107.08,5.1,107.08,0.0],["P",0,80.31,297.76,80.31,302.86],["P",0,80.31,5.1,80.31,0.0],["P",0,53.54,297.76,53.54,302.86],["P",0,53.54,5.1,53.54,0.0],["P",0,26.77,297.76,26.77,302.86],["P",0,26.77,5.1,26.77,0.0],["P",0,5.1,272.59,0.0,272.59],["P",0,423.24,272.59,428.34,272.59],["P",0,5.1,242.28,0.0,242.28],["P",0,423.24,242.28,428.34,242.28],["P",0,5.1,212.01,0.0,212.01],["P",0,423.24,212.01,428.34,212.01],["P",0,5.1,181.7,0.0,181.7],["P",0,423.24,181.7,428.34,181.7],["P",0,5.1,121.16,0.0,121.16],["P",0,423.24,121.16,428.34,121.16],["P",0,5.1,90.85,0.0,90.85],["P",0,423.24,90.85,428.34,90.85],["P",0,5.1,60.58,0.0,60.58],["P",0,423.24,60.58,428.34,60.58],["P",0,5.1,30.27,0.0,30.27],["P",0,423.24,30.27,428.34,30.27],["P",0,414.95,298.28,415.95,300.83,416.9,298.28],["P",0,415.34,299.1,416.55,299.1],["P",0,413.83,2.07,414.82,4.66,415.77,2.07],["P",0,414.22,2.94,415.43,2.94],["P",0,389.82,299.62,390.21,299.49,390.3,299.36,390.43,299.1,390.43,298.76,390.3,298.5,390.21,298.37,389.82,298.28,388.74,298.28,388.74,300.83,389.82,300.83,390.21,300.7,390.3,300.57,390.43,300.31,390.43,300.1,390.3,299.84,390.21,299.71,389.82,299.62,388.74,299.62],["P",0,388.27,3.41,388.66,3.32,388.79,3.2,388.87,2.94,388.87,2.59,388.79,2.33,388.66,2.2,388.27,2.07,387.19,2.07,387.19,4.66,388.27,4.66,388.66,4.53,388.79,4.4,388.87,4.15,388.87,3.93,388.79,3.67,388.66,3.54,388.27,3.41,387.19,3.41],["P",0,363.74,300.23,363.61,300.44,363.35,300.7,363.1,300.83,362.62,300.83,362.4,300.7,362.15,300.44,362.02,300.23,361.89,299.84,361.89,299.23,362.02,298.89,362.15,298.63,362.4,298.37,362.62,298.28,363.1,298.28,363.35,298.37,363.61,298.63,363.74,298.89],["P",0,362.19,4.02,362.06,4.27,361.8,4.53,361.58,4.66,361.07,4.66,360.85,4.53,360.59,4.27,360.46,4.02,360.38,3.67,360.38,3.07,360.46,2.72,360.59,2.46,360.85,2.2,361.07,2.07,361.58,2.07,361.8,2.2,362.06,2.46,362.19,2.72],["P",0,334.94,298.28,334.94,300.83,335.81,300.83,336.15,300.7,336.41,300.44,336.54,300.23,336.63,299.84,336.63,299.23,336.54,298.89,336.41,298.63,336.15,298.37,335.81,298.28],["P",0,333.65,2.07,333.65,4.66,334.51,4.66,334.86,4.53,335.12,4.27,335.2,4.02,335.33,3.67,335.33,3.07,335.2,2.72,335.12,2.46,334.86,2.2,334.51,2.07],["P",0,309.68,298.28,308.13,298.28,308.13,300.83,309.68,300.83],["P",0,308.13,299.62,309.08,299.62],["P",0,308.52,2.07,306.92,2.07,306.92,4.66,308.52,4.66],["P",0,306.92,3.41,307.91,3.41],["P",0,281.27,298.28,281.27,300.83,282.87,300.83],["P",0,281.27,299.62,282.26,299.62],["P",0,280.15,2.07,280.15,4.66,281.75,4.66],["P",0,280.15,3.41,281.14,3.41],["P",0,256.4,300.23,256.27,300.44,256.01,300.7,255.79,300.83,255.28,300.83,255.06,300.7,254.8,300.44,254.67,300.23,254.54,299.84,254.54,299.23,254.67,298.89,254.8,298.63,255.06,298.37,255.28,298.28,255.79,298.28,256.01,298.37,256.27,298.63,256.4,298.89,256.4,299.23,255.79,299.23],["P",0,255.06,4.02,254.97,4.27,254.72,4.53,254.46,4.66,253.98,4.66,253.77,4.53,253.51,4.27,253.38,4.02,253.25,3.67,253.25,3.07,253.38,2.72,253.51,2.46,253.77,2.2,253.98,2.07,254.46,2.07,254.72,2.2,254.97,2.46,255.06,2.72,255.06,3.07,254.46,3.07],["P",0,227.99,300.83,227.99,298.28],["P",0,229.67,300.83,229.67,298.28],["P",0,227.99,299.62,229.67,299.62],["P",0,227.38,4.66,227.38,2.12],["P",0,229.11,4.66,229.11,2.12],["P",0,227.38,3.45,229.11,3.45],["P",0,201.39,300.4,201.39,297.85],["P",0,200.61,4.66,200.61,2.12],["P",0,175.44,300.83,175.44,298.89,175.35,298.54,175.22,298.41,174.96,298.28,174.75,298.28,174.49,298.41,174.36,298.54,174.23,298.89,174.23,299.15],["P",0,174.44,4.66,174.44,2.72,174.32,2.37,174.23,2.25,173.97,2.12,173.71,2.12,173.49,2.25,173.37,2.37,173.24,2.72,173.24,2.98],["P",0,147.59,300.83,147.59,298.28],["P",0,149.27,300.83,147.59,299.1],["P",0,148.19,299.71,149.27,298.28],["P",0,147.07,4.66,147.07,2.12],["P",0,148.8,4.66,147.07,2.94],["P",0,147.67,3.54,148.8,2.12],["P",0,120.56,300.83,120.56,298.28,122.02,298.28],["P",0,119.56,4.66,119.56,2.12,121.03,2.12],["P",0,94.04,298.28,94.04,300.83,94.99,298.28,95.99,300.83,95.99,298.28],["P",0,92.58,2.12,92.58,4.66,93.53,2.12,94.52,4.66,94.52,2.12],["P",0,67.27,298.28,67.27,300.83,68.96,298.28,68.96,300.83],["P",0,65.89,2.12,65.89,4.66,67.62,2.12,67.62,4.66],["P",0,41.11,300.83,40.85,300.7,40.63,300.44,40.5,300.23,40.37,299.84,40.37,299.23,40.5,298.89,40.63,298.63,40.85,298.37,41.11,298.28,41.58,298.28,41.84,298.37,42.06,298.63,42.19,298.89,42.32,299.23,42.32,299.84,42.19,300.23,42.06,300.44,41.84,300.7,41.58,300.83],["P",0,39.73,4.66,39.51,4.53,39.25,4.27,39.12,4.02,38.99,3.67,38.99,3.07,39.12,2.72,39.25,2.46,39.51,2.2,39.73,2.07,40.24,2.07,40.46,2.2,40.72,2.46,40.85,2.72,40.93,3.07,40.93,3.67,40.85,4.02,40.72,4.27,40.46,4.53,40.24,4.66],["P",0,13.64,298.28,13.64,300.83,14.77,300.83,15.11,300.7,15.24,300.57,15.37,300.31,15.37,299.97,15.24,299.71,15.11,299.62,14.77,299.49,13.64,299.49],["P",0,12.35,2.07,12.35,4.66,13.43,4.66,13.82,4.53,13.95,4.4,14.08,4.15,14.08,3.8,13.95,3.54,13.82,3.41,13.43,3.32,12.35,3.32],["P",0,4.49,16.06,4.71,16.19,5.1,16.58,5.1,14.03],["P",0,423.68,16.06,423.89,16.19,424.28,16.58,424.28,14.03],["P",0,3.5,46.25,3.5,46.37,3.63,46.63,3.76,46.72,3.97,46.85,4.49,46.85,4.71,46.72,4.84,46.63,4.97,46.37,4.97,46.12,4.84,45.9,4.58,45.51,3.37,44.3,5.1,44.3],["P",0,423.81,46.25,423.81,46.37,423.89,46.63,424.02,46.72,424.28,46.85,424.76,46.85,425.01,46.72,425.14,46.63,425.23,46.37,425.23,46.12,425.14,45.9,424.89,45.51,423.68,44.3,425.36,44.3],["P",0,3.63,77.16,4.97,77.16,4.23,76.17,4.58,76.17,4.84,76.04,4.97,75.95,5.1,75.56,5.1,75.35,4.97,74.96,4.71,74.7,4.36,74.61,3.97,74.61,3.63,74.7,3.5,74.83,3.37,75.09],["P",0,423.89,77.16,425.23,77.16,424.54,76.17,424.89,76.17,425.14,76.04,425.23,75.95,425.36,75.56,425.36,75.35,425.23,74.96,425.01,74.7,424.63,74.61,424.28,74.61,423.89,74.7,423.81,74.83,423.68,75.09],["P",0,4.49,104.88,4.49,107.43,3.24,105.75,5.1,105.75],["P",0,424.89,104.88,424.89,107.43,423.68,105.75,425.49,105.75],["P",0,4.84,137.74,3.63,137.74,3.5,136.62,3.63,136.75,3.97,136.88,4.36,136.88,4.71,136.75,4.97,136.53,5.1,136.14,5.1,135.93,4.97,135.54,4.71,135.28,4.36,135.19,3.97,135.19,3.63,135.28,3.5,135.41,3.37,135.67],["P",0,425.14,137.74,423.89,137.74,423.81,136.62,423.89,136.75,424.28,136.88,424.63,136.88,425.01,136.75,425.23,136.53,425.36,136.14,425.36,135.93,425.23,135.54,425.01,135.28,424.63,135.19,424.28,135.19,423.89,135.28,423.81,135.41,423.68,135.67],["P",0,4.97,167.67,4.84,167.88,4.49,168.01,4.23,168.01,3.84,167.88,3.63,167.54,3.5,166.93,3.5,166.33,3.63,165.85,3.84,165.59,4.23,165.46,4.36,165.46,4.71,165.59,4.97,165.85,5.1,166.2,5.1,166.33,4.97,166.67,4.71,166.93,4.36,167.06,4.23,167.06,3.84,166.93,3.63,166.67,3.5,166.33],["P",0,425.14,167.67,425.01,167.88,424.63,168.01,424.41,168.01,424.02,167.88,423.81,167.54,423.68,166.93,423.68,166.33,423.81,165.85,424.02,165.59,424.41,165.46,424.54,165.46,424.89,165.59,425.14,165.85,425.23,166.2,425.23,166.33,425.14,166.67,424.89,166.93,424.54,167.06,424.41,167.06,424.02,166.93,423.81,166.67,423.68,166.33],["P",0,3.84,195.78,5.1,198.32,3.37,198.32],["P",0,424.15,195.78,425.36,198.32,423.68,198.32],["P",0,3.97,228.59,3.63,228.46,3.5,228.25,3.5,227.99,3.63,227.77,3.84,227.64,4.36,227.51,4.71,227.38,4.97,227.12,5.1,226.91,5.1,226.52,4.97,226.3,4.84,226.17,4.49,226.04,3.97,226.04,3.63,226.17,3.5,226.3,3.37,226.52,3.37,226.91,3.5,227.12,3.76,227.38,4.1,227.51,4.58,227.64,4.84,227.77,4.97,227.99,4.97,228.25,4.84,228.46,4.49,228.59],["P",0,424.28,228.59,423.89,228.46,423.81,228.25,423.81,227.99,423.89,227.77,424.15,227.64,424.63,227.51,425.01,227.38,425.23,227.12,425.36,226.91,425.36,226.52,425.23,226.3,425.14,226.17,424.76,226.04,424.28,226.04,423.89,226.17,423.81,226.3,423.68,226.52,423.68,226.91,423.81,227.12,424.02,227.38,424.41,227.51,424.89,227.64,425.14,227.77,425.23,227.99,425.23,228.25,425.14,228.46,424.76,228.59],["P",0,5.1,258.04,4.97,257.69,4.71,257.44,4.36,257.31,4.23,257.31,3.84,257.44,3.63,257.69,3.5,258.04,3.5,258.17,3.63,258.51,3.84,258.77,4.23,258.9,4.36,258.9,4.71,258.77,4.97,258.51,5.1,258.04,5.1,257.44,4.97,256.83,4.71,256.44,4.36,256.36,4.1,256.36,3.76,256.44,3.63,256.7],["P",0,425.23,258.04,425.14,257.69,424.89,257.44,424.54,257.31,424.41,257.31,424.02,257.44,423.81,257.69,423.68,258.04,423.68,258.17,423.81,258.51,424.02,258.77,424.41,258.9,424.54,258.9,424.89,258.77,425.14,258.51,425.23,258.04,425.23,257.44,425.14,256.83,424.89,256.44,424.54,256.36,424.28,256.36,423.89,256.44,423.81,256.7],["P",0,1.3,288.7,1.55,288.83,1.9,289.17,1.9,286.62],["P",0,4.1,289.17,3.76,289.04,3.5,288.7,3.37,288.09,3.37,287.7,3.5,287.1,3.76,286.75,4.1,286.62,4.36,286.62,4.71,286.75,4.97,287.1,5.1,287.7,5.1,288.09,4.97,288.7,4.71,289.04,4.36,289.17],["P",0,423.68,288.7,423.89,288.83,424.28,289.17,424.28,286.62],["P",0,426.48,289.17,426.09,289.04,425.83,288.7,425.75,288.09,425.75,287.7,425.83,287.1,426.09,286.75,426.48,286.62,426.7,286.62,427.09,286.75,427.3,287.1,427.43,287.7,427.43,288.09,427.3,288.7,427.09,289.04,426.7,289.17],["P",0,423.24,66.28,423.24,8.12],["P",0,334.51,22.41,334.51,5.1],["P",0,411.02,5.1,411.02,5.79],["P",0,411.02,5.1,411.02,22.41],["P",0,334.51,5.1,334.51,22.41,334.51,43.83],["P",0,5.1,297.76,66.28,297.76,66.28,289.6,5.1,289.6],["P",0,5.1,289.6,5.1,297.76],["P",0,398.76,13.73,423.24,13.73],["P",0,398.76,9.41,423.24,9.41],["P",0,398.76,5.1,398.76,22.41],["P",0,382.48,17.83,398.76,17.83,423.24,17.83],["P",0,423.24,66.28,423.24,71.38,321.25,71.38,321.25,66.28,321.25,22.41,422.51,22.41],["P",0,334.51,33.12,321.25,33.12],["P",0,321.25,43.83,321.9,43.83],["P",0,321.25,43.83,423.24,43.83],["P",0,321.25,66.28,423.24,66.28],["P",0,423.24,66.28,321.25,66.28,423.24,66.28],["P",0,333.52,66.28,333.52,81.57],["P",0,347.77,66.28,347.77,81.57],["P",0,366.16,66.28,366.16,81.57],["P",0,321.25,71.38,423.24,71.38,423.24,76.47,321.25,76.47],["P",0,384.51,66.28,384.51,81.57],["P",0,402.86,66.28,402.86,81.57],["P",0,328.42,75.87,330.71,71.89,326.09,71.89],["P",0,321.25,30.87,321.25,5.1,321.25,70.17],["P",0,321.25,13.26,321.25,5.1],["P",0,423.24,295.74,423.24,5.1,5.1,5.1],["P",0,392.67,43.83,392.67,22.41],["P",0,392.67,29.53,423.24,29.53],["P",0,392.67,36.7,423.24,36.7],["P",0,382.48,22.41,382.48,5.1],["C",387.6,13.75,2.05],["C",387.6,13.75,0.76],["P",0,387.58,16.28,387.58,11.18],["P",0,396.73,13.73,385.03,13.73],["P",0,392.16,14.51,392.16,13.0,396.21,11.7,396.21,15.8],["P",0,423.24,55.05,321.25,55.05],["P",0,389.61,33.12,337.58,33.12],["P",0,339.61,13.73,377.34,13.73],["S",387.65,266.91,387.88,266.47,387.21,266.78,387.21,266.78],["S",387.21,266.78,386.99,266.21,388.25,265.63,388.25,265.63],["S",387.21,266.78,387.88,266.47,388.25,265.63,388.25,265.63],["S",387.68,268.8,388.01,268.5,387.35,268.81,387.35,268.81],["S",387.35,268.81,384.67,268.58,387.1,267.45,387.1,267.45],["S",384.67,268.58,387.1,267.45,371.8,267.44,371.8,267.44],["S",387.35,268.81,388.01,268.5,387.1,267.45,387.1,267.45],["S",389.06,284.74,390.46,268.84,389.09,269.48,389.09,269.48],["S",389.09,269.48,389.05,269.4,390.42,268.76,390.42,268.76],["S",389.05,269.4,390.42,268.76,390.12,268.52,390.12,268.52],["S",389.09,269.48,390.46,268.84,390.42,268.76,390.42,268.76],["S",406.34,267.44,393.46,266.29,391.04,267.42,391.04,267.42],["S",391.04,267.42,390.12,266.37,390.78,266.06,390.78,266.06],["S",390.12,266.37,390.78,266.06,390.44,266.03,390.44,266.03],["S",391.04,267.42,393.46,266.29,390.78,266.06,390.78,266.06],["S",388.01,266.36,389.08,265.48,387.71,266.11,387.71,266.11],["S",387.71,266.11,387.68,266.04,389.04,265.4,389.04,265.4],["S",387.68,266.04,389.04,265.4,389.08,250.14,389.08,250.14],["S",387.71,266.11,389.08,265.48,389.04,265.4,389.04,265.4],["P",0,389.06,284.74,387.56,267.42,389.08,250.14,389.09,267.43,388.25,265.63],["P",0,387.65,266.91,390.48,267.97],["P",0,389.08,250.14,390.57,267.45,389.06,284.74,389.09,267.43,389.91,269.19],["P",0,371.8,267.44,389.05,265.92,406.34,267.44,389.09,267.43,390.85,266.61],["P",0,389.57,266.01,388.56,268.86],["P",0,406.34,267.44,389.08,268.95,371.8,267.44,389.09,267.43,387.29,268.27],["T",399.51,7.23,1.73,"mm[inch]",4],["T",401.8,11.58,1.7,"UNIT",4],["T",403.35,15.78,1.73,"",4,"scale"],["T",406.46,68.8,1.7,"APPROVED",4],["T",387.68,68.8,1.7,"RIVIEWED",4],["T",368.9,68.8,1.7,"PREPARED",4],["T",337.24,68.8,1.7,"DATE",4],["T",413.11,11.54,1.7,"PAPER",4],["T",415.75,7.28,1.73,"A3",4],["T",400.94,20.09,1.7,"SCALE",4],["T",413.03,20.09,1.7,"SHEET",4],["T",322.43,68.8,1.7,"REV NO.",4],["T",348.77,68.8,1.7,"DESCRIPTION",4],["T",356.96,73.92,1.73,"-",5],["T",367.82,114.86,2.19,"NOTE",4],["T",393.47,42.03,1.7,"MFG. SERIAL NO.",4],["T",393.47,34.9,1.7,"REF. DESIGN SPEC.",4],["T",383.92,21.42,1.5,"PROJECTION",4],["T",385.91,18.78,1.5,"METHOD",4],["T",383.79,8.65,1.53,"THIRD ANGLE",4],["T",384.14,6.01,1.53,"PROJECTION",4],["T",393.47,27.78,1.7,"WO NO.",4],["T",327.79,73.21,1.63,"A",4],["T",322.39,39.95,1.7,"QUALITY",4],["T",323.99,36.97,1.7,"CLASS",4],["T",322.09,15.21,1.7,"DRAWING",4],["T",325.84,12.23,1.7,"NO.",4],["T",334.31,49.23,3.06,"KOREA LEADING ENGINEERING SYSTEM",4],["T",336.85,60.41,3.57,"",4,"addr"],["T",416.48,15.78,1.73,"1",4],["T",333.75,73.95,1.73,"",4,"date"],["T",50.26,293.7,3.06,"KL-",4],["T",361.65,38.99,2.99,"-",4],["T",407.61,267.47,3.08,"E",4],["T",367.35,267.71,3.08,"W",4],["T",387.42,287.77,3.08,"N",4],["T",387.84,248.08,3.08,"S",4],["T",375.36,73.92,1.73,"-",5],["T",393.71,73.92,1.73,"-",5],["T",412.06,73.92,1.73,"-",5],["T",154.1,28.92,3.57,"",4,"title"],["P",0,153.07,25.51,204.58,25.51],["T",14.46,239.68,3.29,"",4,"note"],["L",423.24,91.93,423.24,112.31],["L",423.24,112.31,321.25,112.31],["L",321.25,112.31,321.25,117.45],["L",321.25,117.45,423.24,117.45],["L",423.24,117.45,423.24,112.31],["L",423.24,112.31,321.25,112.31],["L",321.25,112.31,321.25,76.47],["L",321.25,81.57,422.77,81.57],["P",0,8.21,258.85,116.26,258.85,116.26,220.52,8.21,220.52]];
+  var FRAME_DRAW_AREA = { x0:12, y0:40, x1:312, y1:212 };   // 도곽 안에서 배치도를 그리는 칸(용지 mm)
+  var DRAWING_SCALES = [50,100,150,200,250,300,400,500,600,700,800,1000,1200,1500,2000,2500,3000,4000,5000,6000,8000,10000,15000,20000];
 
-  var DXF_LAYERS = [
-    ['PV_PARCEL', 1, 'CONTINUOUS'],   // 필지 경계 (빨강)
-    ['PV_BUILDING', 4, 'DASHED'],     // 건물(지붕) 외곽선 (하늘색 점선)
-    ['PV_ARRAY', 5, 'CONTINUOUS'],    // 어레이(구조물 한 줄) 외곽 (파랑)
-    ['PV_MODULE', 150, 'CONTINUOUS'], // 모듈 한 장 (청색 계열)
-    ['PV_TEXT', 7, 'CONTINUOUS'],     // 지번·어레이 번호
-    ['PV_NOTE', 7, 'CONTINUOUS'],     // 표제·설계 개요·축척
-    ['PV_FRAME', 8, 'CONTINUOUS']     // 도면 테두리
-  ];
+  var dxfLibPromise = null;
+  function loadDxfLib(){
+    if(dxfLibPromise) return dxfLibPromise;
+    var urls = ['https://cdn.jsdelivr.net/npm/@tarikjabiri/dxf@2.9.0/+esm',
+                'https://unpkg.com/@tarikjabiri/dxf@2.9.0/lib/index.mjs'];
+    dxfLibPromise = (function tryAt(i){
+      if(i >= urls.length) return Promise.reject(new Error('CAD 라이브러리를 불러오지 못했습니다'));
+      return import(urls[i]).catch(function(){ return tryAt(i + 1); });
+    })(0).catch(function(e){ dxfLibPromise = null; throw e; });
+    return dxfLibPromise;
+  }
 
-  function buildLayoutDxf(){
-    var ll = state.lastLayout, spec = ll.spec, rect = state.combined.rect, sum = layoutSummary(ll);
+  // ---- 위성사진: 브이월드 위성 타일을 이어 붙여 PNG로 (도면 그리는 칸 크기 그대로) ----
+  // 타일 서버가 다른 사이트에서 그림 읽기를 막으면(CORS) null을 돌려주고, 도면은 위성사진 없이 만든다.
+  function lonLatToWorldPx(lon, lat, z){
+    var n = 256 * Math.pow(2, z), r = lat * Math.PI/180;
+    return [ (lon + 180) / 360 * n, (1 - Math.log(Math.tan(r) + 1/Math.cos(r)) / Math.PI) / 2 * n ];
+  }
+  function captureSatellite(minXm, minYm, maxXm, maxYm, outW){
+    var o = state.combined;
+    var sw = fromXY(minXm, minYm, o.lon0, o.lat0), ne = fromXY(maxXm, maxYm, o.lon0, o.lat0);
+    var mPerPx = (maxXm - minXm) / outW;
+    // 필요한 해상도보다 촘촘한 가장 낮은 줌 (최대 19)
+    var z = 19;
+    for(var zz = 12; zz <= 19; zz++){
+      var res = 156543.034 * Math.cos(o.lat0 * Math.PI/180) / Math.pow(2, zz);
+      if(res <= mPerPx){ z = zz; break; }
+    }
+    var a = lonLatToWorldPx(sw[0], ne[1], z), b = lonLatToWorldPx(ne[0], sw[1], z);
+    var tx0 = Math.floor(a[0]/256), ty0 = Math.floor(a[1]/256), tx1 = Math.floor(b[0]/256), ty1 = Math.floor(b[1]/256);
+    if((tx1 - tx0 + 1) * (ty1 - ty0 + 1) > 400) return Promise.resolve(null);
+    var mos = document.createElement('canvas');
+    mos.width = (tx1 - tx0 + 1) * 256; mos.height = (ty1 - ty0 + 1) * 256;
+    var mctx = mos.getContext('2d'), jobs = [];
+    for(var ty = ty0; ty <= ty1; ty++) for(var tx = tx0; tx <= tx1; tx++){
+      jobs.push(new Promise(function(res){
+        var img = new Image(), px = (tx - tx0) * 256, py = (ty - ty0) * 256;
+        img.crossOrigin = 'anonymous';
+        img.onload = function(){ mctx.drawImage(img, px, py); res(true); };
+        img.onerror = function(){ res(false); };
+        img.src = 'https://api.vworld.kr/req/wmts/1.0.0/' + VWORLD_KEY + '/Satellite/' + z + '/' + ty + '/' + tx + '.jpeg';
+      }));
+    }
+    return Promise.all(jobs).then(function(ok){
+      if(!ok.some(Boolean)) return null;
+      var outH = Math.round(outW * (maxYm - minYm) / (maxXm - minXm));
+      var cv = document.createElement('canvas'); cv.width = outW; cv.height = outH;
+      cv.getContext('2d').drawImage(mos, a[0] - tx0*256, a[1] - ty0*256, b[0] - a[0], b[1] - a[1], 0, 0, outW, outH);
+      return new Promise(function(res){
+        try{
+          cv.toBlob(function(blob){
+            if(!blob){ res(null); return; }
+            blob.arrayBuffer().then(function(buf){ res({ png:new Uint8Array(buf), w:outW, h:outH }); }, function(){ res(null); });
+          }, 'image/png');
+        }catch(e){ res(null); }   // 다른 사이트 그림이라 읽기 막힘(CORS)
+      });
+    }).catch(function(){ return null; });
+  }
+
+  // ---- 아주 작은 ZIP 만들기 (압축 없이 묶기만) — 도면(.dxf)과 위성사진(.png)을 함께 받기 위함 ----
+  var crcTable = null;
+  function crc32(u8){
+    if(!crcTable){
+      crcTable = new Uint32Array(256);
+      for(var n = 0; n < 256; n++){ var c = n; for(var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; crcTable[n] = c >>> 0; }
+    }
+    var crc = 0xFFFFFFFF;
+    for(var i = 0; i < u8.length; i++) crc = crcTable[(crc ^ u8[i]) & 0xFF] ^ (crc >>> 8);
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+  function makeZip(files){
+    var enc = new TextEncoder(), parts = [], central = [], offset = 0;
+    var d = new Date(), dosTime = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+    var dosDate = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+    files.forEach(function(f){
+      var name = enc.encode(f.name), data = f.data, crc = crc32(data);
+      var lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); // UTF-8 파일 이름
+      lh.setUint16(8, 0, true); lh.setUint16(10, dosTime, true); lh.setUint16(12, dosDate, true);
+      lh.setUint32(14, crc, true); lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true);
+      lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+      parts.push(new Uint8Array(lh.buffer), name, data);
+      var ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true);
+      ch.setUint16(10, 0, true); ch.setUint16(12, dosTime, true); ch.setUint16(14, dosDate, true);
+      ch.setUint32(16, crc, true); ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true);
+      ch.setUint16(28, name.length, true); ch.setUint32(42, offset, true);
+      central.push(new Uint8Array(ch.buffer), name);
+      offset += 30 + name.length + data.length;
+    });
+    var cdSize = central.reduce(function(t, u){ return t + u.length; }, 0);
+    var end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+    end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+    return new Blob(parts.concat(central, [new Uint8Array(end.buffer)]), { type:'application/zip' });
+  }
+
+  function facilityDrawingTitle(){
+    var v = document.getElementById('facilityType').value;
+    return (v === 'agrivoltaic' ? '영농형태양광' : (v === 'roof' ? '지붕태양광' : '태양광')) + ' 가배치도';
+  }
+  function moduleNameText(spec){
+    return document.getElementById('modulePreset').value === '645' ? '현대 HiN-T645NJ ' + spec.watt + 'w' : spec.watt + 'w (' + spec.longMm + '×' + spec.shortMm + ')';
+  }
+
+  // X = 불러온 DXF 라이브러리, sat = 위성사진 정보(없으면 null), imgName = PNG 파일 이름
+  function buildLayoutDxf(X, plan, sat, imgName){
+    var ll = state.lastLayout, spec = ll.spec, rect = state.combined.rect, sum = plan.sum, S = plan.scale;
     var ox = rect.minX, oy = rect.minY;
     function P(pt){ return [(pt[0] - ox) * 1000, (pt[1] - oy) * 1000]; }
-    var W = rect.w * 1000, H = rect.h * 1000, S = Math.max(W, H, 10000);
-    var th = Math.max(250, Math.min(5000, S / 70));   // 기본 글자 높이(mm)
+    function F(px, py){ return [plan.fx + px * S, plan.fy + py * S]; }   // 용지 좌표(mm) → 도면 좌표(mm)
+    var d = new X.DxfWriter();
+    d.setUnits(X.Units.Millimeters);
+    var st = d.document.tables.addStyle('KOR'); st.fontFileName = 'malgun.ttf';
+    [['PV_SATELLITE',8],['PV_PARCEL',1],['PV_BUILDING',4],['PV_ARRAY',5],['PV_MODULE',150],['PV_TEXT',7],['PV_DIM',3],['도곽',7],['도곽_문자',7]]
+      .forEach(function(l){ d.addLayer(l[0], l[1], 'CONTINUOUS'); });
+    function v2(p){ return { point: X.point2d(p[0], p[1]) }; }
+    function poly(layer, pts, closed, color){
+      var o = { layerName: layer, flags: closed ? X.LWPolylineFlags.Closed : X.LWPolylineFlags.None };
+      if(color != null) o.colorNumber = color;
+      d.addLWPolyline(pts.map(v2), o);
+    }
+    function text(layer, p, h, str, ap){
+      // 붙임점(1~9: 위·가운데·아래 × 왼·가운데·오른) → TEXT 정렬
+      ap = ap || 7;
+      var hz = (ap - 1) % 3, vt = 3 - Math.floor((ap - 1) / 3);
+      var o = { layerName: layer };
+      if(hz || vt){ o.horizontalAlignment = hz; o.verticalAlignment = vt; o.secondAlignmentPoint = X.point3d(p[0], p[1], 0); }
+      var t = d.addText(X.point3d(p[0], p[1], 0), h, String(str), o);
+      t.textStyle = 'KOR';
+    }
 
-    var ent = new DxfWriter();
-    // 1) 필지 경계 + 지번·면적
+    // 1) 위성사진 (맨 아래)
+    if(sat){
+      var a0 = F(FRAME_DRAW_AREA.x0, FRAME_DRAW_AREA.y0);
+      var wMm = (FRAME_DRAW_AREA.x1 - FRAME_DRAW_AREA.x0) * S;
+      d.addImage(imgName, 'SATELLITE', X.point3d(a0[0], a0[1], 0), sat.w, sat.h, wMm, 0, { layerName:'PV_SATELLITE' });
+    }
+    // 2) 필지 경계 + 지번
     state.parcels.forEach(function(p){
       if(!p.projected || p.projected.length < 3) return;
-      ent.poly('PV_PARCEL', p.projected.map(P), true);
+      poly('PV_PARCEL', p.projected.map(P), true);
       var cx = 0, cy = 0; p.projected.forEach(function(q){ cx += q[0]; cy += q[1]; });
-      cx /= p.projected.length; cy /= p.projected.length;
-      var c = P([cx, cy]);
-      ent.text('PV_TEXT', [c[0], c[1] + th*0.8], th*1.2, jibunOf(p) + (jimokOf(p) ? ' ' + jimokOf(p) : ''), 'center');
-      ent.text('PV_TEXT', [c[0], c[1] - th*0.8], th*0.9, fmt(p.areaM2, 0) + '㎡ (' + fmt(pyeong(p.areaM2), 0) + '평)', 'center');
+      var c = P([cx / p.projected.length, cy / p.projected.length]);
+      text('PV_TEXT', [c[0], c[1] + 2.2*S], 3*S, jibunOf(p) + (jimokOf(p) ? ' ' + jimokOf(p) : ''), 5);
+      text('PV_TEXT', [c[0], c[1] - 2.2*S], 2.2*S, fmt(p.areaM2, 0) + '㎡', 5);
     });
-    // 2) 지붕 태양광: 건물 외곽선
     if(spec.isRoof){
-      state.parcels.forEach(function(p){
-        (p.buildings || []).forEach(function(b){
-          ent.poly('PV_BUILDING', b.ll.map(function(pt){ return P(toXY(pt[0], pt[1], state.combined.lon0, state.combined.lat0)); }), true);
-        });
-      });
+      state.parcels.forEach(function(p){ (p.buildings || []).forEach(function(b){
+        poly('PV_BUILDING', b.ll.map(function(pt){ return P(toXY(pt[0], pt[1], state.combined.lon0, state.combined.lat0)); }), true);
+      }); });
     }
-    // 3) 모듈 한 장씩
-    ll.tables.forEach(function(t){
-      tableModules(t, ll).forEach(function(m){ ent.poly('PV_MODULE', m.map(P), true); });
-    });
-    // 4) 어레이 외곽 + 번호 (어레이가 너무 많으면 번호는 생략)
+    // 3) 모듈 한 장씩 + 어레이 외곽·번호
+    ll.tables.forEach(function(t){ tableModules(t, ll).forEach(function(m){ poly('PV_MODULE', m.map(P), true); }); });
     var labelArrays = sum.arrays.length <= 400;
     sum.arrays.forEach(function(a){
       var cs = a.corners.map(P);
-      ent.poly('PV_ARRAY', cs, true);
-      if(labelArrays){
-        var lx = (cs[0][0] + cs[3][0]) / 2, ly = (cs[0][1] + cs[3][1]) / 2;
-        ent.text('PV_TEXT', [lx - th*0.3, ly - th*0.25], th*0.5, 'A' + a.no, 'left');
+      poly('PV_ARRAY', cs, true);
+      if(labelArrays) text('PV_TEXT', [(cs[0][0] + cs[3][0]) / 2 - 0.6*S, (cs[0][1] + cs[3][1]) / 2], 1.6*S, 'A' + a.no, 6);
+    });
+    // 4) 축척 막대 (그리는 칸 왼쪽 아래)
+    var barM = [5,10,20,25,50,100,200,250,500,1000].filter(function(v){ return v*1000/S <= 60; }).pop() || 5;
+    var b0 = F(FRAME_DRAW_AREA.x0 + 2, FRAME_DRAW_AREA.y0 - 6), bl = barM * 1000;
+    d.addLine(X.point3d(b0[0], b0[1], 0), X.point3d(b0[0] + bl, b0[1], 0), { layerName:'PV_DIM' });
+    for(var i = 0; i <= 4; i++){ var xx = b0[0] + bl*i/4; d.addLine(X.point3d(xx, b0[1] - 0.8*S, 0), X.point3d(xx, b0[1] + 0.8*S, 0), { layerName:'PV_DIM' }); }
+    text('PV_DIM', [b0[0], b0[1] - 1.5*S], 1.8*S, '0', 1);
+    text('PV_DIM', [b0[0] + bl, b0[1] - 1.5*S], 1.8*S, barM + 'm', 2);
+    text('PV_DIM', [b0[0] + bl + 3*S, b0[1]], 1.8*S, 'SCALE 1:' + S + ' (A3)', 4);
+
+    // 5) 도곽·표제란 (회사 양식 그대로, 바꿀 칸만 이번 부지 내용으로)
+    var addrText = sum.addrList.length > 1 ? sum.addrList[0] + ' 외 ' + (sum.addrList.length - 1) + '필지' : (sum.addrList[0] || '');
+    var noteLines = [
+      '- 태양광 모듈 : ' + moduleNameText(spec),
+      '- 모듈각도 / 방향 : ' + spec.tiltDeg + '° / ' + sum.azText,
+      '- 발전설비 용량 : ' + spec.watt + 'w x ' + fmt(sum.modules, 0) + '장 = ' + fmt(sum.capacityKw, 2) + 'kw',
+      spec.isAgri ? '- 차광률 : ' + ll.gcrPct.toFixed(1) + '% (영농형태양광 기준 30%이하)'
+                  : '- 차광률(GCR) : ' + ll.gcrPct.toFixed(1) + '% / 행간 ' + ll.pitch.toFixed(2) + 'm',
+      '- 경계 이격 : ' + spec.setback.toFixed(1) + 'm (동지 그림자 길이 기준 자동 계산)'
+    ];
+    var vars = {
+      scale: '1:' + S,
+      date: todayStr('-'),
+      title: facilityDrawingTitle(),
+      addr: addrText
+    };
+    KLES_FRAME.forEach(function(e){
+      var k = e[0];
+      if(k === 'L'){ d.addLine(X.point3d(F(e[1],e[2])[0], F(e[1],e[2])[1], 0), X.point3d(F(e[3],e[4])[0], F(e[3],e[4])[1], 0), { layerName:'도곽' }); }
+      else if(k === 'P'){
+        var pts = []; for(var j = 2; j < e.length; j += 2) pts.push(F(e[j], e[j+1]));
+        poly('도곽', pts, e[1] === 1);
+      }
+      else if(k === 'S'){
+        var bd = new X.HatchBoundaryPaths();
+        var q = [F(e[1],e[2]), F(e[3],e[4]), F(e[7],e[8]), F(e[5],e[6])];
+        bd.addPolylineBoundary(new X.HatchPolylineBoundary(q.map(function(p){ return X.vertex(p[0], p[1]); })));
+        d.addHatch(bd, X.pattern({ name: X.HatchPredefinedPatterns.SOLID }), { layerName:'도곽' });
+      }
+      else if(k === 'C'){ var c = F(e[1], e[2]); d.addCircle(X.point3d(c[0], c[1], 0), e[3] * S, { layerName:'도곽' }); }
+      else if(k === 'T'){
+        var key = e[6];
+        if(key === 'note'){
+          // NOTE 칸: 여러 줄을 원래 글자 위치(가운데 기준)에 맞춰 위에서부터
+          var lh = 2.6, gap = 5.4, top = e[2] + gap * (noteLines.length - 1) / 2;
+          noteLines.forEach(function(s, n){ text('도곽_문자', F(e[1], top - gap*n), lh * S, s, 4); });
+          return;
+        }
+        var str = key ? vars[key] : e[4], h = e[3];
+        if(key === 'addr' && str.length * h > 80) h = Math.max(1.5, 80 / str.length);   // 표제란 칸을 넘지 않게
+        text('도곽_문자', F(e[1], e[2]), h * S, str, e[5]);
       }
     });
 
-    // 5) 북쪽 화살표 (오른쪽 위)
-    var nx = W + th*4, ny = H - th*2, ar = th*1.6;
-    ent.solid('PV_NOTE', [nx, ny + ar], [nx - ar*0.5, ny - ar], [nx, ny - ar*0.5]);
-    ent.poly('PV_NOTE', [[nx, ny + ar], [nx + ar*0.5, ny - ar], [nx, ny - ar*0.5], [nx, ny + ar]], false);
-    ent.text('PV_NOTE', [nx, ny + ar + th*1.2], th*1.4, 'N', 'center');
+    var out = d.stringify();
+    // 라이브러리 버그 보정: IMAGEDEF_REACTOR의 주인(330) 핸들이 0으로 나오는 것을 IMAGE 핸들로 바꿈
+    var im = /\n0\nIMAGE\n5\n([0-9A-F]+)\n/.exec(out);
+    if(im) out = out.replace(/(\n0\nIMAGEDEF_REACTOR\n5\n[0-9A-F]+\n330\n)0\n/, '$1' + im[1] + '\n');
+    return out;
+  }
 
-    // 6) 축척 막대 (아래쪽)
-    var barM = [5,10,20,50,100,200,500].filter(function(v){ return v*1000 <= W/3; }).pop() || 5;
-    var bx = 0, by = -th*3, bl = barM * 1000;
-    ent.line('PV_NOTE', [bx, by], [bx + bl, by]);
-    for(var i = 0; i <= 4; i++){ var xx = bx + bl*i/4; ent.line('PV_NOTE', [xx, by - th*0.3], [xx, by + th*0.3]); }
-    ent.text('PV_NOTE', [bx, by - th*1.3], th*0.8, '0', 'left');
-    ent.text('PV_NOTE', [bx + bl, by - th*1.3], th*0.8, barM + 'm', 'left');
-
-    // 7) 설계 개요 (아래쪽 표제란)
-    var o = state.combined;
-    var lines = [
-      '태양광 모듈 배치도',
-      '위치: ' + addrSummary(sum.addrList, ', '),
-      '설비 구분: ' + facilityTypeText() + (spec.isRoof ? (ll.roofPitched ? ' (경사·패널 지붕)' : ' (평지붕)') : ''),
-      '모듈: ' + spec.watt + 'W (' + spec.longMm + '×' + spec.shortMm + 'mm), ' + sum.orientText + ' ' + spec.stack + '단, 경사각 ' + spec.tiltDeg + '°',
-      '수량: 모듈 ' + fmt(sum.modules,0) + '매 / 테이블 ' + fmt(sum.tables,0) + '개 / 어레이 ' + fmt(sum.arrays.length,0) + '열 (총 길이 ' + fmt(sum.arrayLenM,1) + 'm)',
-      '설비용량: ' + fmt(sum.capacityKw, 2) + ' kWp',
-      '방향: ' + sum.azText + ' / 행간(pitch) ' + ll.pitch.toFixed(2) + 'm / 차광률(GCR) ' + ll.gcrPct.toFixed(1) + '% / 경계 이격 ' + spec.setback + 'm',
-      '단위: mm, 정북이 위쪽. 원점(0,0) = 위도 ' + fromXY(ox, oy, o.lon0, o.lat0)[1].toFixed(6) + ', 경도 ' + fromXY(ox, oy, o.lon0, o.lat0)[0].toFixed(6),
-      '필지 경계는 브이월드 연속지적도 기준이며 실측과 다를 수 있습니다. 작성일 ' + todayStr('.')
-    ];
-    var ty = by - th*4;
-    lines.forEach(function(s, i){
-      ent.text('PV_NOTE', [0, ty], i === 0 ? th*1.6 : th*0.9, s, 'left');
-      ty -= i === 0 ? th*2.4 : th*1.5;
-    });
-    // 8) 테두리
-    var fx0 = -th*3, fy0 = ty - th*1.5, fx1 = Math.max(W, lines.reduce(function(m, s){ return Math.max(m, s.length * th*1.0); }, 0)) + th*8, fy1 = H + th*6;
-    ent.poly('PV_FRAME', [[fx0,fy0],[fx1,fy0],[fx1,fy1],[fx0,fy1]], true);
-
-    // 헤더·테이블(선 종류·레이어·글꼴)
-    var hd = new DxfWriter();
-    hd.g(0,'SECTION'); hd.g(2,'HEADER');
-    hd.g(9,'$ACADVER'); hd.g(1,'AC1009');
-    hd.g(9,'$DWGCODEPAGE'); hd.g(3,'ANSI_949');
-    hd.g(9,'$INSBASE'); hd.g(10,'0.0'); hd.g(20,'0.0'); hd.g(30,'0.0');
-    hd.g(9,'$EXTMIN'); hd.g(10,hd.n(fx0)); hd.g(20,hd.n(fy0)); hd.g(30,'0.0');
-    hd.g(9,'$EXTMAX'); hd.g(10,hd.n(fx1)); hd.g(20,hd.n(fy1)); hd.g(30,'0.0');
-    hd.g(9,'$LTSCALE'); hd.g(40,'1.0');
-    hd.g(0,'ENDSEC');
-    hd.g(0,'SECTION'); hd.g(2,'TABLES');
-    hd.g(0,'TABLE'); hd.g(2,'LTYPE'); hd.g(70,2);
-    hd.g(0,'LTYPE'); hd.g(2,'CONTINUOUS'); hd.g(70,0); hd.g(3,'Solid line'); hd.g(72,65); hd.g(73,0); hd.g(40,'0.0');
-    hd.g(0,'LTYPE'); hd.g(2,'DASHED'); hd.g(70,0); hd.g(3,'__ __ __'); hd.g(72,65); hd.g(73,2); hd.g(40,'1500.0'); hd.g(49,'1000.0'); hd.g(49,'-500.0');
-    hd.g(0,'ENDTAB');
-    hd.g(0,'TABLE'); hd.g(2,'LAYER'); hd.g(70,DXF_LAYERS.length + 1);
-    hd.g(0,'LAYER'); hd.g(2,'0'); hd.g(70,0); hd.g(62,7); hd.g(6,'CONTINUOUS');
-    DXF_LAYERS.forEach(function(l){ hd.g(0,'LAYER'); hd.g(2,l[0]); hd.g(70,0); hd.g(62,l[1]); hd.g(6,l[2]); });
-    hd.g(0,'ENDTAB');
-    hd.g(0,'TABLE'); hd.g(2,'STYLE'); hd.g(70,1);
-    hd.g(0,'STYLE'); hd.g(2,'KOR'); hd.g(70,0); hd.g(40,'0.0'); hd.g(41,'1.0'); hd.g(50,'0.0'); hd.g(71,0); hd.g(42,'250.0'); hd.g(3,'malgun.ttf'); hd.g(4,'');
-    hd.g(0,'ENDTAB');
-    hd.g(0,'ENDSEC');
-    hd.g(0,'SECTION'); hd.g(2,'ENTITIES');
-    var tail = ['0','ENDSEC','0','EOF'];
-    return hd.out.concat(ent.out, tail).join('\r\n') + '\r\n';
+  // 도면 축척: 배치도가 그리는 칸(300×172mm)에 들어가는 가장 큰 표준 축척
+  function drawingPlan(){
+    var rect = state.combined.rect, sum = layoutSummary(state.lastLayout);
+    var W = rect.w * 1000, H = rect.h * 1000;
+    var aw = FRAME_DRAW_AREA.x1 - FRAME_DRAW_AREA.x0, ah = FRAME_DRAW_AREA.y1 - FRAME_DRAW_AREA.y0;
+    var need = Math.max(W / (aw - 10), H / (ah - 10));
+    var S = DRAWING_SCALES.filter(function(v){ return v >= need; })[0] || Math.ceil(need / 1000) * 1000;
+    var cx = (FRAME_DRAW_AREA.x0 + FRAME_DRAW_AREA.x1) / 2, cy = (FRAME_DRAW_AREA.y0 + FRAME_DRAW_AREA.y1) / 2;
+    return { sum: sum, scale: S, fx: W/2 - cx*S, fy: H/2 - cy*S };
   }
 
   document.getElementById('exportDxfBtn').addEventListener('click', function(){
     if(!layoutReady()){ exportStatus('먼저 주소를 추가해 모듈 배치 결과가 나오게 해주세요.', true); return; }
-    try{
-      var dxf = buildLayoutDxf();
-      var name = state.parcels.length ? shortParcelName(state.parcels[0]) : '부지';
-      downloadBlob(new Blob([encodeCp949(dxf)], { type:'application/dxf' }), '태양광배치도_' + safeFileName(name) + '_' + todayStr('') + '.dxf');
-      exportStatus('배치도(.dxf)를 내려받았습니다.');
-    }catch(e){
-      exportStatus('배치도를 만드는 중 문제가 생겼습니다: ' + e.message, true);
-    }
+    var btn = this; btn.disabled = true;
+    exportStatus('배치도를 만드는 중… (위성사진을 받는 데 몇 초 걸릴 수 있어요)');
+    var name = state.parcels.length ? shortParcelName(state.parcels[0]) : '부지';
+    var base = '태양광배치도_' + safeFileName(name) + '_' + todayStr('');
+    var plan = drawingPlan(), rect = state.combined.rect;
+    // 그리는 칸 전체(도면 좌표) → 현장 좌표(m)
+    var A = FRAME_DRAW_AREA, S = plan.scale;
+    var m0x = rect.minX + (plan.fx + A.x0*S) / 1000, m0y = rect.minY + (plan.fy + A.y0*S) / 1000;
+    var m1x = rect.minX + (plan.fx + A.x1*S) / 1000, m1y = rect.minY + (plan.fy + A.y1*S) / 1000;
+    Promise.all([loadDxfLib(), captureSatellite(m0x, m0y, m1x, m1y, 3000)]).then(function(r){
+      var X = r[0], sat = r[1], imgName = base + '_위성사진.png';
+      var dxf = buildLayoutDxf(X, plan, sat, imgName);
+      var dxfBytes = new TextEncoder().encode(dxf);
+      if(sat){
+        downloadBlob(makeZip([{ name: base + '.dxf', data: dxfBytes }, { name: imgName, data: sat.png }]), base + '.zip');
+        exportStatus('배치도(.zip)를 내려받았습니다 — 압축을 푼 폴더에서 .dxf를 열면 위성사진이 함께 보입니다. 축척 1:' + S + ' (A3)');
+      } else {
+        downloadBlob(new Blob([dxfBytes], { type:'application/dxf' }), base + '.dxf');
+        exportStatus('배치도(.dxf)를 내려받았습니다. 축척 1:' + S + ' (A3). 위성사진은 브이월드에서 받지 못해 넣지 못했습니다.');
+      }
+    }).catch(function(e){
+      exportStatus('배치도를 만드는 중 문제가 생겼습니다: ' + (e && e.message ? e.message : e), true);
+    }).then(function(){ btn.disabled = false; });
   });
 
   // ---- 상세견적 엑셀 (ExcelJS — 버튼을 누를 때만 불러옴) ----
@@ -2324,7 +2438,8 @@ a{color:var(--accent);}
   var AGRIVOLTAIC_NOTE = '영농형 태양광은 농지 위에서 영농과 태양광 발전을 병행하는 방식입니다. 2026.6.16 제정 · 2026.12.17 시행되는 「영농형 태양광 발전사업의 활성화 및 지원에 관한 법률」(영농형태양광특별법)에 따라 농업인·주민참여협동조합·농업법인만 사업권을 가지며, 사업구역은 원칙적으로 농업진흥지역 밖 농지로 한정됩니다. 사업기간은 최초 5년+연장 18년, 최대 23년까지 가능하고(기존 농지법상 일시사용허가 8년보다 확대), 임차농 보호를 위한 계약갱신 의무·임대료 인상 5% 상한이 적용됩니다. 모듈 면적비(차광률) 30% 미만 기준에 맞춰 이 도구는 거치 단수를 1단으로 고정하고 행간을 자동으로 넓혀 계산합니다 — 세부 기술기준은 하위법령 확정에 따라 달라질 수 있습니다.';
   var CAPEX_BY_TYPE = { general: 1300000, agrivoltaic: 1600000, roof: 1300000 };
   var ROOF_NOTE = '지붕 태양광은 필지 안 건물의 지붕(건물 외곽선)에만 모듈을 배치합니다. 건축물 등 기존 시설물을 이용하는 태양광은 REC 가중치가 지상형보다 높게(3MW 이하 1.5) 적용되어 가중치를 1.5로 바꿔두었습니다 — 최신 고시값을 확인하세요. 지붕 하중(구조 안전진단)·방수·건물주 동의가 별도로 필요하고, 농지전용부담금은 해당하지 않습니다.';
-  var lastGroundSetback = null;
+  var GROUND_CLEAR_BY_TYPE = { general: 0.5, agrivoltaic: 3.0 };
+  var lastFacilityType = 'general';
   function syncRoofControls(){
     var isRoof = document.getElementById('facilityType').value === 'roof';
     document.getElementById('roofCtl').classList.toggle('hidden', !isRoof);
@@ -2339,15 +2454,16 @@ a{color:var(--accent);}
     if(CAPEX_BY_TYPE.hasOwnProperty(type)){
       econCapexEl.value = CAPEX_BY_TYPE[type];
     }
-    // 지붕은 가장자리 이격이 작음(기본 1m), 지상형으로 돌아가면 원래 값 복원
-    var setbackEl = document.getElementById('setbackM');
+    // 경계 이격은 runSimulation()에서 자동 계산. 설비 구분에 맞는 구조물 지상고 기본값만 넣어준다
+    // (일반 0.5m, 영농형 3.0m — 농기계가 지나갈 수 있는 높이). 지붕형은 지상고를 쓰지 않음.
+    document.getElementById('groundClearM').value = GROUND_CLEAR_BY_TYPE[type] != null ? GROUND_CLEAR_BY_TYPE[type] : 0.5;
+    document.getElementById('groundClearField').classList.toggle('hidden', type === 'roof');
     if(type === 'roof'){
-      if(lastGroundSetback === null){ lastGroundSetback = setbackEl.value; setbackEl.value = 1; }
-      document.getElementById('econRecWeight').value = 1.5;
-    } else if(lastGroundSetback !== null){
-      setbackEl.value = lastGroundSetback; lastGroundSetback = null;
+      if(lastFacilityType !== 'roof') document.getElementById('econRecWeight').value = 1.5;
+    } else if(lastFacilityType === 'roof'){
       document.getElementById('econRecWeight').value = 1.0;
     }
+    lastFacilityType = type;
     syncRoofControls();
     syncStackCountLock();
     runSimulation(); // stack lock + GCR constraint + capex default all feed back into the layout/economics
