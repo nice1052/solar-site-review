@@ -160,6 +160,18 @@ table.zonelist tr.totalrow td{font-weight:700;border-top:1.5px solid var(--accen
 
 #mapview{width:100%;height:320px;border-radius:10px;margin-bottom:12px;background:var(--surface-2);}
 #mapview .leaflet-control-attribution{font-size:9px;}
+.editbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:-4px 0 12px;}
+.editbar .btn{padding:6px 11px;font-size:12px;}
+.editbar .btn.on{background:var(--accent);color:var(--accent-ink);border-color:transparent;}
+.editbar .btn[disabled]{opacity:.45;cursor:default;}
+.editbar select{font-size:12px;padding:5px 6px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--ink);}
+.editbar .sep{width:1px;height:22px;background:var(--line);}
+.edithelp{font-size:11.5px;color:var(--muted);line-height:1.6;margin:-4px 0 10px;}
+.edithelp b{color:var(--ink);}
+.edithelp .sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin:0 3px 0 6px;}
+#editStatus{font-size:12px;font-weight:700;}
+#mapview.editing{height:520px;}
+@media (max-width:760px){#mapview.editing{height:420px;}}
 .maplabel{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;}
 .maplabel .lbl{font-size:11px;color:var(--muted);letter-spacing:.02em;}
 .maplabel .src{font-size:10px;color:var(--muted);}
@@ -211,6 +223,8 @@ a{color:var(--accent);}
   body{background:#fff!important;color:#111!important;padding:0;}
   .wrap{max-width:100%;}
   .searchbar, #parcelChips, .hint, #status, #printBar, .dropdown, .clearallbtn{display:none!important;}
+  .editbar, .edithelp{display:none!important;}
+  #mapview.editing{height:260px;}
   button.btn{display:none!important;}
   a.btn{border:none;padding:0;color:#111;font-weight:700;}
   a.btn[href]::after{content:" → " attr(href);font-size:9px;color:#555;font-weight:400;}
@@ -335,6 +349,32 @@ a{color:var(--accent);}
 
           <div class="maplabel"><span class="lbl">위성사진 — 필지 경계 오버레이</span><span class="src">브이월드 위성영상</span></div>
           <div id="mapview"></div>
+          <div class="editbar">
+            <button type="button" class="btn" id="editToggle">✋ 배치 직접 조정</button>
+            <span id="editTools" class="hidden" style="display:contents;">
+              <button type="button" class="btn" id="editSelAll">전체 선택</button>
+              <button type="button" class="btn" id="editSelRow">같은 줄 선택</button>
+              <button type="button" class="btn" id="editSelNone">선택 해제</button>
+              <span class="sep"></span>
+              <button type="button" class="btn" id="editUp" title="북쪽으로">↑</button>
+              <button type="button" class="btn" id="editDown" title="남쪽으로">↓</button>
+              <button type="button" class="btn" id="editLeft" title="서쪽으로">←</button>
+              <button type="button" class="btn" id="editRight" title="동쪽으로">→</button>
+              <select id="editStep" title="화살표 한 번에 움직일 거리"><option value="0.1">0.1m</option><option value="0.5" selected>0.5m</option><option value="1">1m</option><option value="5">5m</option></select>
+              <span class="sep"></span>
+              <button type="button" class="btn" id="editDelete">🗑 지우기</button>
+              <button type="button" class="btn" id="editUndo">↶ 되돌리기</button>
+              <button type="button" class="btn" id="editReset">↺ 처음 배치로</button>
+            </span>
+            <span id="editStatus"></span>
+          </div>
+          <div class="edithelp hidden" id="editHelp">
+            모듈을 <b>클릭</b>하면 선택(<b>Shift+클릭</b>으로 여러 개), 선택한 모듈을 <b>끌면</b> 함께 옮겨집니다. 빈 곳을 끌면 지도가 움직입니다. 화살표 버튼은 선택한 모듈을 정한 거리만큼 옮기고, Delete 키나 🗑로 지웁니다.<br>
+            <span class="sw" style="background:#F97316"></span>선택됨
+            <span class="sw" style="background:#F87171;border:1px dashed #B91C1C"></span>경계 이격을 안 지키거나 다른 모듈과 겹침 → 용량에서 빠짐
+            <span class="sw" style="background:#4C8FE0;border:2px solid #FACC15"></span>앞줄 그늘이 닿을 수 있음(용량엔 포함)
+            · 조정한 배치가 경제성·CAD 배치도·엑셀 견적에 그대로 쓰입니다. 모듈·방향·용량 설정을 바꾸면 처음 배치로 돌아갑니다.
+          </div>
           <div class="kepco" style="margin-top:10px;">
             <a class="btn" id="kakaoMapBtn" href="#" target="_blank" rel="noopener">카카오맵에서 보기 ↗</a>
             <a class="btn" id="naverMapBtn" href="#" target="_blank" rel="noopener">네이버지도에서 보기 ↗</a>
@@ -1060,6 +1100,7 @@ a{color:var(--accent);}
     if(!el || typeof L === 'undefined') return;
     if(!leafletMap){
       leafletMap = L.map(el, { attributionControl:true, zoomControl:true });
+      initLayoutEditMap(el);
       L.tileLayer('https://api.vworld.kr/req/wmts/1.0.0/' + VWORLD_KEY + '/Satellite/{z}/{y}/{x}.jpeg', {
         maxZoom: 19, minZoom: 6,
         attribution: '© VWorld 위성영상'
@@ -1115,6 +1156,7 @@ a{color:var(--accent);}
   var leafletModuleLayers = [];
   var moduleRenderer = null;  // 모듈 수천 개를 가볍게 그리기 위한 캔버스 렌더러
   function updateMapModules(){
+    updateEditStatus();
     if(!leafletMap) return;
     leafletModuleLayers.forEach(function(l){ leafletMap.removeLayer(l); });
     leafletModuleLayers = [];
@@ -1132,12 +1174,276 @@ a{color:var(--accent);}
         });
       });
     }
-    if(!ll || !ll.tables || !ll.tables.length || lon0==null || lat0==null) return;
-    ll.tables.forEach(function(t){
+    moduleLayerByKey = {};
+    if(!ll || !ll.tables || lon0==null || lat0==null) return;
+    var drawList = ll.tables.concat(ll.badTables || []);
+    if(!drawList.length) return;
+    drawList.forEach(function(t){
       var corners = t.corners || [[t.x0,t.y0],[t.x1,t.y0],[t.x1,t.y1],[t.x0,t.y1]];
       var latlngs = corners.map(function(c){ var ll2 = fromXY(c[0], c[1], lon0, lat0); return [ll2[1], ll2[0]]; });
-      var poly = L.polygon(latlngs, { renderer:moduleRenderer, interactive:false, color:'#2B6CB0', weight:1, fillColor:'#4C8FE0', fillOpacity:0.55 }).addTo(leafletMap);
+      var poly = L.polygon(latlngs, assignStyle({ renderer:moduleRenderer, interactive:false }, moduleStyle(t))).addTo(leafletMap);
       leafletModuleLayers.push(poly);
+      if(t.key) moduleLayerByKey[t.key] = { layer:poly, t:t };
+    });
+  }
+  function assignStyle(a, b){ for(var k in b) a[k] = b[k]; return a; }
+  // 테이블 색: 기본 파랑 / 선택 주황 / 경계·겹침 위반 빨강(점선) / 앞줄 그늘 노란 테두리
+  function moduleStyle(t){
+    var sel = layoutEdit.on && t.key && layoutEdit.sel[t.key];
+    if(t.bad) return { color:'#B91C1C', weight:sel ? 2.5 : 1.5, dashArray:'4 3', fillColor:sel ? '#F97316' : '#F87171', fillOpacity:0.7 };
+    if(sel) return { color:'#C2410C', weight:1.5, dashArray:null, fillColor:'#F97316', fillOpacity:0.75 };
+    if(t.shade) return { color:'#FACC15', weight:2.5, dashArray:null, fillColor:'#4C8FE0', fillOpacity:0.55 };
+    return { color:'#2B6CB0', weight:1, dashArray:null, fillColor:'#4C8FE0', fillOpacity:0.55 };
+  }
+  function restyleModules(){
+    Object.keys(moduleLayerByKey).forEach(function(k){ var m = moduleLayerByKey[k]; m.layer.setStyle(moduleStyle(m.t)); });
+  }
+
+  // ---------- 배치 직접 조정 (위성사진에서 모듈 테이블 옮기기·지우기) ----------
+  // 자동 배치 결과의 테이블마다 처음 위치로 이름(key)을 붙이고, 옮긴 거리(off, 실제 동·북 방향 m)와
+  // 지운 테이블(removed)만 기억한다. 배치를 다시 계산할 때마다 이 기록을 덧입히므로, 결과(state.lastLayout)를
+  // 쓰는 CAD·엑셀·경제성·제안서가 조정한 배치를 그대로 쓴다. 모듈·방향·용량 설정이 바뀌어 자동 배치 자체가
+  // 달라지면(테이블 이름 목록이 바뀌면) 기록을 지우고 처음 배치로 돌아간다.
+  var layoutEdit = { on:false, sig:null, off:{}, removed:{}, sel:{}, undo:[] };
+  var moduleLayerByKey = {};
+  function tableKey(t){ return t.g + ':' + Math.round(t.x0 * 1000) + ':' + Math.round(t.y0 * 1000); }
+  function hashStr(str){
+    var h = 5381;
+    for(var i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+    return h;
+  }
+  function applyLayoutEdits(tables, groups, spec, pitch){
+    var E = layoutEdit;
+    var keys = tables.map(function(t){ t.key = tableKey(t); return t.key; });
+    var sig = keys.length + '#' + hashStr(keys.join('|')) + '#' + groups.map(function(g){ return g.az; }).join(',');
+    var res = { tables: tables, bad: [], moved: 0, removed: 0, shaded: 0, changed: false, wasReset: false };
+    if(E.sig !== sig){
+      res.wasReset = E.sig !== null && (Object.keys(E.off).length > 0 || Object.keys(E.removed).length > 0);
+      E.sig = sig; E.off = {}; E.removed = {}; E.sel = {}; E.undo = [];
+      return res;
+    }
+    var hasOff = Object.keys(E.off).length > 0, hasRem = Object.keys(E.removed).length > 0;
+    if(!hasOff && !hasRem) return res;
+    res.changed = true;
+    var EPS = 0.01, edgesByG = {}, kept = [];
+    tables.forEach(function(t){
+      if(E.removed[t.key]){ res.removed++; return; }
+      var o = E.off[t.key];
+      if(o && (Math.abs(o[0]) > 1e-6 || Math.abs(o[1]) > 1e-6)){
+        var g = groups[t.g], th = g.az * Math.PI/180, f = toFrame(o, th);
+        t.x0 += f[0]; t.x1 += f[0]; t.y0 += f[1]; t.y1 += f[1];
+        t.corners = [[t.x0,t.y0],[t.x1,t.y0],[t.x1,t.y1],[t.x0,t.y1]].map(function(c){ return fromFrame(c, th); });
+        t.moved = true; res.moved++;
+        // 자동 배치와 같은 기준으로 검사: 네 모서리가 필지(지붕) 안 + 경계선까지 이격거리 이상
+        var polys = g.framePolys || [];
+        if(!edgesByG[t.g]) edgesByG[t.g] = boundaryEdges(polys);
+        var ix0 = t.x0+EPS, ix1 = Math.max(ix0, t.x1-EPS), iy0 = t.y0+EPS, iy1 = Math.max(iy0, t.y1-EPS);
+        var cs = [[ix0,iy0],[ix1,iy0],[ix1,iy1],[ix0,iy1]], ok = true;
+        for(var k = 0; k < 4; k++){ if(!pointInAny(cs[k], polys)){ ok = false; break; } }
+        if(ok && edgesByG[t.g].length) ok = rectFarFromEdges(ix0, iy0, ix1, iy1, edgesByG[t.g], spec.setback - 0.005);
+        if(!ok) t.bad = 'edge';
+      }
+      kept.push(t);
+    });
+    // 겹침·앞줄 그늘 검사 (옮긴 테이블 주변만, 같은 배치 묶음 안에서) — 격자로 나눠 가까운 것만 비교
+    var cell = Math.max(pitch, 1) * 2, grid = {};
+    function cellKey(g, i, j){ return g + ':' + i + ':' + j; }
+    kept.forEach(function(t){
+      var i0 = Math.floor(t.x0/cell), i1 = Math.floor(t.x1/cell), j0 = Math.floor(t.y0/cell), j1 = Math.floor(t.y1/cell);
+      for(var i = i0; i <= i1; i++) for(var j = j0; j <= j1; j++){ var ck = cellKey(t.g, i, j); (grid[ck] = grid[ck] || []).push(t); }
+    });
+    kept.forEach(function(t){
+      if(!t.moved) return;
+      var i0 = Math.floor(t.x0/cell) - 1, i1 = Math.floor(t.x1/cell) + 1, j0 = Math.floor((t.y0 - pitch)/cell) - 1, j1 = Math.floor((t.y1 + pitch)/cell) + 1;
+      for(var i = i0; i <= i1; i++) for(var j = j0; j <= j1; j++){
+        (grid[cellKey(t.g, i, j)] || []).forEach(function(n){
+          if(n === t) return;
+          var ox = Math.min(t.x1, n.x1) - Math.max(t.x0, n.x0), oy = Math.min(t.y1, n.y1) - Math.max(t.y0, n.y0);
+          if(ox > 0.005 && oy > 0.005){ t.bad = t.bad || 'overlap'; n.bad = n.bad || 'overlap'; return; }
+          if(ox > 0.05){
+            // 그림자는 북쪽(배치 좌표 +y)으로 진다: 앞줄(남쪽) 시작점과 뒷줄 시작점 사이가 행간보다 짧으면 그늘
+            if(n.y0 > t.y0 + 0.005 && n.y0 < t.y0 + pitch - 0.02) n.shade = true;
+            if(t.y0 > n.y0 + 0.005 && t.y0 < n.y0 + pitch - 0.02) t.shade = true;
+          }
+        });
+      }
+    });
+    res.tables = [];
+    kept.forEach(function(t){
+      if(t.bad) res.bad.push(t);
+      else { res.tables.push(t); if(t.shade) res.shaded++; }
+    });
+    return res;
+  }
+  function updateEditStatus(){
+    var el = document.getElementById('editStatus');
+    if(!el) return;
+    var ll = state.lastLayout, E = layoutEdit;
+    var nSel = Object.keys(E.sel).length;
+    var parts = [];
+    if(E.on) parts.push(nSel ? '선택 ' + fmt(nSel,0) + '개' : '모듈을 클릭해 선택하세요');
+    if(ll && ll.edited) parts.push('직접 조정됨 · ' + fmt(ll.capacityKw,1) + 'kWp' + (ll.badTables && ll.badTables.length ? ' · 빨간색 ' + ll.badTables.length + '개 제외' : ''));
+    el.textContent = parts.join('  ·  ');
+    el.style.color = ll && ll.badTables && ll.badTables.length ? 'var(--bad-ink)' : '';
+    var hasSel = nSel > 0;
+    ['editSelRow','editSelNone','editUp','editDown','editLeft','editRight','editDelete'].forEach(function(id){ document.getElementById(id).disabled = !hasSel; });
+    document.getElementById('editUndo').disabled = !E.undo.length;
+    document.getElementById('editReset').disabled = !(Object.keys(E.off).length || Object.keys(E.removed).length);
+  }
+  function pushUndo(){
+    var E = layoutEdit;
+    E.undo.push({ off: JSON.stringify(E.off), removed: JSON.stringify(E.removed) });
+    if(E.undo.length > 50) E.undo.shift();
+  }
+  function allDrawnTables(){
+    var ll = state.lastLayout;
+    return ll ? ll.tables.concat(ll.badTables || []) : [];
+  }
+  function moveSelection(dx, dy){
+    var E = layoutEdit, ks = Object.keys(E.sel);
+    if(!ks.length || (!dx && !dy)) return;
+    pushUndo();
+    ks.forEach(function(k){ var o = E.off[k] || [0,0]; E.off[k] = [o[0] + dx, o[1] + dy]; });
+    runSimulation();
+  }
+  function setEditMode(on){
+    layoutEdit.on = on;
+    if(!on) layoutEdit.sel = {};
+    var btn = document.getElementById('editToggle');
+    btn.classList.toggle('on', on);
+    btn.textContent = on ? '✔ 조정 끝내기' : '✋ 배치 직접 조정';
+    document.getElementById('editTools').classList.toggle('hidden', !on);
+    document.getElementById('editHelp').classList.toggle('hidden', !on);
+    var mv = document.getElementById('mapview');
+    mv.classList.toggle('editing', on);
+    if(leafletMap){ leafletMap.invalidateSize(); if(on) leafletMap.doubleClickZoom.disable(); else leafletMap.doubleClickZoom.enable(); }
+    restyleModules();
+    updateEditStatus();
+  }
+  document.getElementById('editToggle').addEventListener('click', function(){
+    if(!layoutEdit.on && !(state.lastLayout && (state.lastLayout.tables.length || (state.lastLayout.badTables || []).length))){
+      var st = document.getElementById('editStatus');
+      st.textContent = '먼저 주소를 검색해 모듈 배치를 만든 뒤 조정할 수 있어요.'; st.style.color = 'var(--bad-ink)';
+      return;
+    }
+    setEditMode(!layoutEdit.on);
+  });
+  document.getElementById('editSelAll').addEventListener('click', function(){
+    layoutEdit.sel = {};
+    allDrawnTables().forEach(function(t){ if(t.key) layoutEdit.sel[t.key] = true; });
+    restyleModules(); updateEditStatus();
+  });
+  document.getElementById('editSelRow').addEventListener('click', function(){
+    // 선택한 테이블과 처음 배치에서 같은 줄(같은 묶음·같은 행)에 있던 테이블을 모두 선택
+    var rows = {};
+    Object.keys(layoutEdit.sel).forEach(function(k){ var p = k.split(':'); rows[p[0] + ':' + p[2]] = true; });
+    allDrawnTables().forEach(function(t){ var p = t.key.split(':'); if(rows[p[0] + ':' + p[2]]) layoutEdit.sel[t.key] = true; });
+    restyleModules(); updateEditStatus();
+  });
+  document.getElementById('editSelNone').addEventListener('click', function(){ layoutEdit.sel = {}; restyleModules(); updateEditStatus(); });
+  function stepM(){ return parseFloat(document.getElementById('editStep').value) || 0.5; }
+  document.getElementById('editUp').addEventListener('click', function(){ moveSelection(0, stepM()); });
+  document.getElementById('editDown').addEventListener('click', function(){ moveSelection(0, -stepM()); });
+  document.getElementById('editLeft').addEventListener('click', function(){ moveSelection(-stepM(), 0); });
+  document.getElementById('editRight').addEventListener('click', function(){ moveSelection(stepM(), 0); });
+  function deleteSelection(){
+    var E = layoutEdit, ks = Object.keys(E.sel);
+    if(!ks.length) return;
+    pushUndo();
+    ks.forEach(function(k){ E.removed[k] = true; });
+    E.sel = {};
+    runSimulation();
+  }
+  document.getElementById('editDelete').addEventListener('click', deleteSelection);
+  document.getElementById('editUndo').addEventListener('click', function(){
+    var E = layoutEdit, u = E.undo.pop();
+    if(!u) return;
+    E.off = JSON.parse(u.off); E.removed = JSON.parse(u.removed);
+    runSimulation();
+  });
+  document.getElementById('editReset').addEventListener('click', function(){
+    var E = layoutEdit;
+    pushUndo();
+    E.off = {}; E.removed = {}; E.sel = {};
+    runSimulation();
+  });
+  document.addEventListener('keydown', function(e){
+    if(!layoutEdit.on) return;
+    var tag = (e.target && e.target.tagName) || '';
+    if(/INPUT|SELECT|TEXTAREA/.test(tag)) return;
+    if(e.key === 'Delete' || e.key === 'Backspace'){ if(Object.keys(layoutEdit.sel).length){ e.preventDefault(); deleteSelection(); } }
+    else if(e.key === 'Escape'){ layoutEdit.sel = {}; restyleModules(); updateEditStatus(); }
+  });
+
+  // 지도 위 끌기: 모듈 위에서 누르면 지도 대신 선택한 모듈이 움직이고, 빈 곳에서 누르면 평소처럼 지도가 움직인다.
+  // Leaflet의 지도 끌기보다 먼저 받으려고 지도 칸에 capture 단계로 건다.
+  var editDrag = null;
+  function hitTable(latlng){
+    var lon0 = state.combined.lon0, lat0 = state.combined.lat0;
+    if(lon0 == null) return null;
+    var p = toXY(latlng.lng, latlng.lat, lon0, lat0), list = allDrawnTables();
+    for(var i = list.length - 1; i >= 0; i--){ if(list[i].key && pointInPolygon(p, list[i].corners)) return list[i]; }
+    return null;
+  }
+  function initLayoutEditMap(el){
+    function pointOf(ev){ var t = ev.touches ? ev.touches[0] || ev.changedTouches[0] : ev; return t; }
+    function down(ev){
+      if(!layoutEdit.on || !leafletMap) return;
+      if(ev.touches && ev.touches.length > 1) return;
+      if(ev.button != null && ev.button !== 0 && !ev.touches) return;
+      if(ev.target && ev.target.closest && ev.target.closest('.leaflet-control')) return;
+      var pt = pointOf(ev), latlng = leafletMap.mouseEventToLatLng(pt), t = hitTable(latlng);
+      if(!t) return;
+      ev.stopPropagation(); ev.preventDefault();
+      var E = layoutEdit, add = ev.shiftKey || ev.ctrlKey || ev.metaKey, wasSel = !!E.sel[t.key];
+      if(!wasSel){ if(!add) E.sel = {}; E.sel[t.key] = true; restyleModules(); updateEditStatus(); }
+      var lon0 = state.combined.lon0, lat0 = state.combined.lat0;
+      editDrag = { key:t.key, add:add, wasSel:wasSel, sx:pt.clientX, sy:pt.clientY, start:toXY(latlng.lng, latlng.lat, lon0, lat0), dx:0, dy:0, moved:false, raf:0,
+        items: Object.keys(E.sel).map(function(k){ return moduleLayerByKey[k]; }).filter(Boolean) };
+    }
+    function move(ev){
+      if(!editDrag) return;
+      var pt = pointOf(ev);
+      if(!editDrag.moved && Math.abs(pt.clientX - editDrag.sx) + Math.abs(pt.clientY - editDrag.sy) < 4) return;
+      ev.preventDefault();
+      editDrag.moved = true;
+      var lon0 = state.combined.lon0, lat0 = state.combined.lat0, latlng = leafletMap.mouseEventToLatLng(pt), p = toXY(latlng.lng, latlng.lat, lon0, lat0);
+      editDrag.dx = p[0] - editDrag.start[0]; editDrag.dy = p[1] - editDrag.start[1];
+      if(editDrag.raf) return;
+      editDrag.raf = requestAnimationFrame(function(){
+        if(!editDrag) return;
+        editDrag.raf = 0;
+        var dx = editDrag.dx, dy = editDrag.dy;
+        editDrag.items.forEach(function(m){
+          m.layer.setLatLngs(m.t.corners.map(function(c){ var q = fromXY(c[0] + dx, c[1] + dy, lon0, lat0); return [q[1], q[0]]; }));
+        });
+        document.getElementById('editStatus').textContent = '옮기는 중: 동서 ' + (dx >= 0 ? '동 ' : '서 ') + Math.abs(dx).toFixed(1) + 'm, 남북 ' + (dy >= 0 ? '북 ' : '남 ') + Math.abs(dy).toFixed(1) + 'm';
+      });
+    }
+    function up(){
+      if(!editDrag) return;
+      var d = editDrag; editDrag = null;
+      if(d.raf) cancelAnimationFrame(d.raf);
+      if(d.moved){
+        // 0.1m 단위로 맞춰 기록
+        moveSelection(Math.round(d.dx * 10) / 10, Math.round(d.dy * 10) / 10);
+        if(!Math.round(d.dx * 10) && !Math.round(d.dy * 10)) updateMapModules();
+      } else if(d.add && d.wasSel){
+        delete layoutEdit.sel[d.key]; restyleModules(); updateEditStatus();
+      } else if(!d.add && d.wasSel && Object.keys(layoutEdit.sel).length > 1){
+        layoutEdit.sel = {}; layoutEdit.sel[d.key] = true; restyleModules(); updateEditStatus();
+      }
+    }
+    el.addEventListener('mousedown', down, true);
+    el.addEventListener('touchstart', down, { capture:true, passive:false });
+    document.addEventListener('mousemove', move);
+    document.addEventListener('touchmove', move, { passive:false });
+    document.addEventListener('mouseup', up);
+    document.addEventListener('touchend', up);
+    // 선택한 모듈 위에서는 손가락 모양 대신 이동 모양 커서
+    el.addEventListener('mousemove', function(ev){
+      if(!layoutEdit.on || editDrag || !leafletMap) return;
+      el.style.cursor = hitTable(leafletMap.mouseEventToLatLng(ev)) ? 'move' : '';
     });
   }
 
@@ -1767,6 +2073,7 @@ a{color:var(--accent);}
       var framePolys = g.polys.map(function(poly){ return poly.map(function(pt){ return toFrame(pt, th); }); });
       var layout = buildLayout(framePolys, bboxRect(framePolys), spec, pitch, tableDepth, rowLenM);
       var gi = groups.indexOf(g);
+      g.framePolys = framePolys;   // 직접 조정한 테이블의 경계 이격 검사용
       layout.tables.forEach(function(t){
         t.corners = [[t.x0,t.y0],[t.x1,t.y0],[t.x1,t.y1],[t.x0,t.y1]].map(function(c){ return fromFrame(c, th); });
         t.g = gi;   // 배치 묶음 번호 (CAD·견적에서 같은 줄 어레이를 찾을 때 사용)
@@ -1793,6 +2100,13 @@ a{color:var(--accent);}
         state.parcels.forEach(function(p){ p.layoutTables = 0; });
         allTables.forEach(function(t){ var o = groups[t.g].owner; if(o) o.layoutTables++; });
       }
+    }
+    // 위성사진에서 직접 옮기거나 지운 테이블 반영 (경계 이격·겹침 검사 후 어긋난 것은 용량에서 뺌)
+    var edit = applyLayoutEdits(allTables, groups, spec, pitch);
+    if(edit.changed){
+      allTables = edit.tables;
+      state.parcels.forEach(function(p){ p.layoutTables = 0; });
+      allTables.forEach(function(t){ var o = groups[t.g].owner; if(o) o.layoutTables++; });
     }
     renderParcelLayoutTable(perParcel, globalAz, spec);
 
@@ -1837,11 +2151,21 @@ a{color:var(--accent);}
         '테이블(모듈 ' + spec.stack + '매) 단위로 맞추므로 목표와 조금 다를 수 있어요. 남쪽 줄부터, 같은 줄은 서쪽부터 채웠습니다' + (groups.length > 1 ? '(' + (spec.isRoof ? '건물' : '필지') + ' 순서대로)' : '') + '. CAD 배치도·엑셀 견적·경제성도 이 용량으로 계산됩니다.';
       note.textContent = tNote + ' ' + note.textContent;
     }
+    if(edit.changed){
+      note.textContent = '✋ 직접 조정한 배치입니다: 옮긴 테이블 ' + fmt(edit.moved,0) + '개, 지운 테이블 ' + fmt(edit.removed,0) + '개' +
+        (edit.bad.length ? ', 빨간색 ' + fmt(edit.bad.length,0) + '개는 경계 이격(' + spec.setback.toFixed(1) + 'm)을 안 지키거나 다른 테이블과 겹쳐 용량에서 뺐습니다' : '') +
+        (edit.shaded ? ', 노란 테두리 ' + fmt(edit.shaded,0) + '개는 앞줄 그늘이 닿을 수 있어요(행간 ' + pitch.toFixed(2) + 'm보다 가까움)' : '') +
+        '. 위 용량·CAD·엑셀·경제성은 이 배치 기준입니다. ' + note.textContent;
+    } else if(edit.wasReset){
+      note.textContent = '↺ 설정이 바뀌어 직접 조정했던 배치를 처음 배치로 되돌렸습니다. ' + note.textContent;
+    }
 
     state.lastLayout = { tables: allTables, groups: groups, spec: spec, pitch: pitch, tableDepth: tableDepth,
       rowLenM: rowLenM, slopeLenM: slopeLenM, portrait: portrait, capacityKw: capacityKw, gcrPct: gcrPct,
       globalAz: globalAz, perParcel: perParcel, roofPitched: roofPitched, sunAltDeg: sunAltDeg,
-      setbackCalc: setbackCalc, targetKw: targetInfo ? targetInfo.kw : null, maxCapacityKw: maxCapacityKw };
+      setbackCalc: setbackCalc, targetKw: targetInfo ? targetInfo.kw : null, maxCapacityKw: maxCapacityKw,
+      badTables: edit.bad, edited: edit.changed };
+    updateEditStatus();
     updateMapModules();
     updateEconomics(capacityKw);
   }
