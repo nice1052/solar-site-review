@@ -2313,6 +2313,9 @@ a{color:var(--accent);}
     return [ (lon + 180) / 360 * n, (1 - Math.log(Math.tan(r) + 1/Math.cos(r)) / Math.PI) / 2 * n ];
   }
   function captureSatellite(minXm, minYm, maxXm, maxYm, outW){
+    // 1m당 픽셀 수를 정수로 맞춤 → PNG에 해상도(pHYs, 픽셀/m)를 정확히 적을 수 있음
+    var ppm = Math.max(1, Math.round(outW / (maxXm - minXm)));
+    outW = Math.round(ppm * (maxXm - minXm));
     var o = state.combined;
     var sw = fromXY(minXm, minYm, o.lon0, o.lat0), ne = fromXY(maxXm, maxYm, o.lon0, o.lat0);
     var mPerPx = (maxXm - minXm) / outW;
@@ -2346,11 +2349,24 @@ a{color:var(--accent);}
         try{
           cv.toBlob(function(blob){
             if(!blob){ res(null); return; }
-            blob.arrayBuffer().then(function(buf){ res({ png:new Uint8Array(buf), w:outW, h:outH }); }, function(){ res(null); });
+            blob.arrayBuffer().then(function(buf){ res({ png:pngWithResolution(new Uint8Array(buf), ppm), w:outW, h:outH, ppm:ppm }); }, function(){ res(null); });
           }, 'image/png');
         }catch(e){ res(null); }   // 다른 사이트 그림이라 읽기 막힘(CORS)
       });
     }).catch(function(){ return null; });
+  }
+
+  // PNG에 해상도(pHYs: 1m당 픽셀 수) 넣기 — CAD에서 이미지를 붙일 때 실제 크기(m)로 인식하게
+  function pngWithResolution(png, ppm){
+    if(png.length < 33 || png[12] !== 0x49 || png[13] !== 0x48) return png;   // IHDR 확인
+    var chunk = new Uint8Array(21), dv = new DataView(chunk.buffer);
+    dv.setUint32(0, 9);
+    chunk.set([0x70, 0x48, 0x59, 0x73], 4);   // 'pHYs'
+    dv.setUint32(8, ppm); dv.setUint32(12, ppm); chunk[16] = 1;   // 단위: 미터
+    dv.setUint32(17, crc32(chunk.subarray(4, 17)) >>> 0);
+    var out = new Uint8Array(png.length + 21);
+    out.set(png.subarray(0, 33), 0); out.set(chunk, 33); out.set(png.subarray(33), 54);
+    return out;
   }
 
   // ---- 아주 작은 ZIP 만들기 (압축 없이 묶기만) — 도면(.dxf)과 위성사진(.png)을 함께 받기 위함 ----
@@ -2441,9 +2457,9 @@ a{color:var(--accent);}
       var refX = a0[0].toFixed(1), refY = a0[1].toFixed(1), refW = wMm.toFixed(1);
       text('PV_SAT_REF', [a0[0] + 2.5*S, a0[1] + 2*S], 2*S, '위성사진 기준점(왼쪽 아래) X=' + refX + ', Y=' + refY, 7);
       sat.ref = { x: refX, y: refY, w: refW, h: hMm.toFixed(1) };
-      ['[위성사진 붙이는 기준] 사진이 안 보이면: IMAGEATTACH(이미지 부착) → ' + imgName + ' 선택',
-       '→ 삽입점 X=' + refX + ', Y=' + refY + ' (노란 십자) / 축척 ' + refW + ' (사진 가로 길이 mm) / 회전 0',
-       '→ 사진이 노란 사각형(가로 ' + refW + ' × 세로 ' + hMm.toFixed(1) + ' mm)에 딱 맞으면 정확합니다. 단위 mm, 정북이 위쪽.'
+      ['[위성사진 기준] 사진 테두리가 노란 사각형(가로 ' + refW + ' × 세로 ' + hMm.toFixed(1) + ' mm)과 겹치면 정확합니다. 단위 mm, 정북이 위쪽.',
+       '안 보이면: IMAGEATTACH → ' + imgName + ' / 삽입점 X=' + refX + ', Y=' + refY + ' (노란 십자) / 축척 ' + refW + ' / 회전 0',
+       '크기·위치가 다르면: ALIGN(정렬) → 사진 왼쪽 아래→노란 십자, 사진 오른쪽 아래→노란 사각형 오른쪽 아래, 축척 적용 예(Y)'
       ].forEach(function(line, i){ text('PV_SAT_REF', F(FRAME_DRAW_AREA.x0, -8 - i * 6), 3.2 * S, line, 7); });
     }
     // 2) 필지 경계 + 지번
@@ -2526,6 +2542,11 @@ a{color:var(--accent);}
     // 라이브러리 버그 보정: IMAGEDEF_REACTOR의 주인(330) 핸들이 0으로 나오는 것을 IMAGE 핸들로 바꿈
     var im = /\n0\nIMAGE\n5\n([0-9A-F]+)\n/.exec(out);
     if(im) out = out.replace(/(\n0\nIMAGEDEF_REACTOR\n5\n[0-9A-F]+\n330\n)0\n/, '$1' + im[1] + '\n');
+    // IMAGEDEF의 픽셀 1개 크기(11·21)를 실제 값(mm)으로 — 라이브러리는 1로 적어서, 이 값을 쓰는 CAD에서는 사진이 아주 작게 보임
+    if(sat){
+      var px = String(wMm / sat.w);
+      out = out.replace(/(\nAcDbRasterImageDef\n1\n[^\n]*\n10\n[^\n]*\n20\n[^\n]*\n11\n)1(\n21\n)1\n/, '$1' + px + '$2' + px + '\n');
+    }
     return out;
   }
 
@@ -2564,15 +2585,25 @@ a{color:var(--accent);}
           '2. 풀린 폴더에서 ' + base + '.dxf 를 여세요. 사진(' + imgName + ')은 .dxf와 같은 폴더에 두고 이름을 바꾸지 마세요.',
           '   → 사진이 자동으로 제자리(같은 축척)에 깔립니다.',
           '',
-          '[사진이 안 보이거나 위치가 어긋날 때 — 손으로 붙이기]',
+          '[맞았는지 확인하는 법]',
           '도면의 노란색(PV_SAT_REF 레이어) 사각형이 사진이 들어갈 자리, 왼쪽 아래 노란 십자가 기준점입니다.',
+          '사진 테두리가 노란 사각형(가로 ' + sat.ref.w + ' × 세로 ' + sat.ref.h + ' mm)과 딱 겹치면 위치·축척 모두 맞은 것입니다.',
+          '(사진 1픽셀 = 도면 ' + (1000 / sat.ppm).toFixed(2) + 'mm. 도면은 실제 크기 그대로, 도면 1mm = 실제 1mm)',
+          '',
+          '[사진이 안 보일 때 — 손으로 붙이기]',
           '1. 명령어 IMAGEATTACH (또는 메뉴 삽입 → 이미지/래스터 부착)',
           '2. 파일: ' + imgName,
           '3. 삽입점: X=' + sat.ref.x + ', Y=' + sat.ref.y + '  (노란 십자를 클릭해도 됩니다)',
           '4. 축척: ' + sat.ref.w + '   (사진 가로 길이, mm)',
           '5. 회전: 0',
-          '→ 사진이 노란 사각형(가로 ' + sat.ref.w + ' × 세로 ' + sat.ref.h + ' mm)에 딱 맞으면 정확한 위치입니다.',
-          '   이미 사진이 깔려 있는데 어긋나 있으면, 그 사진을 지우고 위 순서로 다시 붙이세요.',
+          '',
+          '[사진 크기나 위치가 노란 사각형과 다를 때 — 정렬(ALIGN)로 한 번에 맞추기]',
+          '프로그램마다 이미지 축척을 다르게 읽을 수 있어서, 이 방법이 가장 확실합니다.',
+          '1. 명령어 ALIGN (정렬) → 사진 테두리를 클릭해 선택 → Enter',
+          '2. 첫 번째 원본 점: 사진의 왼쪽 아래 모서리 / 첫 번째 대상 점: 노란 십자(왼쪽 아래)',
+          '3. 두 번째 원본 점: 사진의 오른쪽 아래 모서리 / 두 번째 대상 점: 노란 사각형의 오른쪽 아래 모서리',
+          '4. Enter → "정렬점을 기준으로 객체에 축척을 적용하시겠습니까?" 에서 예(Y)',
+          '→ 사진이 노란 사각형에 딱 맞게 옮겨지고 크기도 맞춰집니다. 지적 경계선·모듈은 움직이지 마세요.',
           '',
           '도면 기준: 단위 mm, 정북이 위쪽, 축척 1:' + S + ' (A3). 도면 원점(0,0)은 필지들을 감싸는 사각형의 왼쪽 아래 모서리입니다.',
           '노란 표시는 인쇄 전에 PV_SAT_REF 레이어를 끄면 됩니다.'
