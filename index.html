@@ -1102,7 +1102,7 @@ a{color:var(--accent);}
       leafletMap = L.map(el, { attributionControl:true, zoomControl:true });
       initLayoutEditMap(el);
       L.tileLayer('https://api.vworld.kr/req/wmts/1.0.0/' + VWORLD_KEY + '/Satellite/{z}/{y}/{x}.jpeg', {
-        maxZoom: 19, minZoom: 6,
+        maxZoom: 21, maxNativeZoom: 19, minZoom: 6,   // 19보다 더 확대하면 사진을 늘려 보여줌 (모듈 직접 조정용)
         attribution: '© VWorld 위성영상'
       }).addTo(leafletMap);
     }
@@ -1316,7 +1316,14 @@ a{color:var(--accent);}
     document.getElementById('editHelp').classList.toggle('hidden', !on);
     var mv = document.getElementById('mapview');
     mv.classList.toggle('editing', on);
-    if(leafletMap){ leafletMap.invalidateSize(); if(on) leafletMap.doubleClickZoom.disable(); else leafletMap.doubleClickZoom.enable(); }
+    if(leafletMap){
+      leafletMap.invalidateSize();
+      if(on) leafletMap.doubleClickZoom.disable(); else leafletMap.doubleClickZoom.enable();
+      // 조정을 시작하면 모듈이 손으로 잡을 수 있을 만큼 크게 보이도록 배치 범위로 확대
+      var lon0 = state.combined.lon0, lat0 = state.combined.lat0, pts = [];
+      if(on && lon0 != null) allDrawnTables().forEach(function(t){ t.corners.forEach(function(c){ var q = fromXY(c[0], c[1], lon0, lat0); pts.push([q[1], q[0]]); }); });
+      if(pts.length) leafletMap.fitBounds(L.latLngBounds(pts), { padding:[20,20], maxZoom:20 });
+    }
     restyleModules();
     updateEditStatus();
   }
