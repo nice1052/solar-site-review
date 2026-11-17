@@ -173,6 +173,9 @@ table.zonelist tr.totalrow td{font-weight:700;border-top:1.5px solid var(--accen
 .azrow .azreset{font-size:11.5px;padding:5px 10px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;}
 .roofctl{grid-template-columns:2fr 1fr;}
 .layoutctl.hidden{display:none;}
+.layoutctl.capctl{grid-template-columns:1fr 1fr 1fr;}
+@media (max-width:760px){.layoutctl.capctl{grid-template-columns:1fr;}}
+.capctl .field.off{opacity:.45;pointer-events:none;}
 .field label.chk{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink);padding:6px 0;cursor:pointer;}
 .field label.chk input{width:16px;height:16px;accent-color:var(--accent);}
 .azrow.locked{opacity:.45;pointer-events:none;}
@@ -394,6 +397,26 @@ a{color:var(--accent);}
               </select>
             </div>
           </div>
+          <div class="layoutctl capctl" id="capCtl">
+            <div class="field">
+              <label>설비 용량 정하기</label>
+              <select id="capacityMode">
+                <option value="max" selected>최대 용량 (필지에 꽉 채움)</option>
+                <option value="target">목표 용량 (입력한 kW만큼만)</option>
+              </select>
+            </div>
+            <div class="field off" id="targetKwField">
+              <label>목표 용량(kW)</label>
+              <input id="targetKw" type="number" min="0" step="0.1" placeholder="예: 99.9" disabled>
+            </div>
+            <div class="field off" id="targetRoundField">
+              <label>목표에 딱 맞지 않을 때</label>
+              <select id="targetRound" disabled>
+                <option value="under" selected>목표를 넘지 않게 (이하)</option>
+                <option value="over">목표를 채우도록 (이상)</option>
+              </select>
+            </div>
+          </div>
           <div class="layoutctl roofctl hidden" id="roofCtl">
             <div class="field">
               <label>지붕 형태</label>
@@ -418,7 +441,7 @@ a{color:var(--accent);}
           <div class="simresult">
             <div class="box"><div class="lbl">실제 배치 모듈수(필지 모양 반영)</div><div class="val mono" id="resModulesLayout">-</div></div>
             <div class="box"><div class="lbl">면적기준 참고치(상한)</div><div class="val mono" id="resModulesArea">-</div></div>
-            <div class="box"><div class="lbl">예상 최대 용량</div><div class="val mono" id="resCapacity">-</div></div>
+            <div class="box"><div class="lbl" id="resCapacityLbl">예상 최대 용량</div><div class="val mono" id="resCapacity">-</div></div>
             <div class="box"><div class="lbl">설치 테이블 수 × 단수</div><div class="val mono" id="resGrid">-</div></div>
             <div class="box"><div class="lbl">차광률(GCR, 지면 대비 모듈 그림자 비율)</div><div class="val mono" id="resGcr">-</div></div>
           </div>
@@ -1418,6 +1441,30 @@ a{color:var(--accent);}
     document.getElementById(id).addEventListener('change', runSimulation);
   });
 
+  // ---------- 설비 용량 정하기: 최대 용량 / 목표 용량(kW) ----------
+  // 목표 용량이면 최대 배치를 먼저 구한 뒤, 정해진 순서(배치 묶음 → 남쪽 줄 → 서쪽)로
+  // 테이블을 필요한 개수만큼만 남긴다. 화면·위성사진·CAD·엑셀·경제성이 모두 이 결과를 쓴다.
+  function syncCapacityControls(){
+    var on = document.getElementById('capacityMode').value === 'target';
+    ['targetKwField','targetRoundField'].forEach(function(id){ document.getElementById(id).classList.toggle('off', !on); });
+    document.getElementById('targetKw').disabled = !on;
+    document.getElementById('targetRound').disabled = !on;
+  }
+  function currentTarget(){
+    if(document.getElementById('capacityMode').value !== 'target') return null;
+    var kw = parseFloat(document.getElementById('targetKw').value);
+    if(isNaN(kw) || kw <= 0) return null;
+    return { kw: kw, over: document.getElementById('targetRound').value === 'over' };
+  }
+  document.getElementById('capacityMode').addEventListener('change', function(){
+    syncCapacityControls();
+    if(this.value === 'target' && !document.getElementById('targetKw').value) document.getElementById('targetKw').focus();
+    runSimulation();
+  });
+  document.getElementById('targetKw').addEventListener('input', scheduleSimulation);
+  document.getElementById('targetRound').addEventListener('change', runSimulation);
+  syncCapacityControls();
+
   // Lay out individual mounting tables (each holding `stack` modules) one by one, keeping
   // only tables whose full footprint (all 4 corners) lies inside AT LEAST ONE of the added
   // parcels' polygons — which is exactly the combined ("합쳐진") owned area, without needing
@@ -1727,6 +1774,26 @@ a{color:var(--accent);}
       });
       if(g.owner) g.owner.layoutTables += layout.tables.length;
     });
+    // 목표 용량: 테이블 단위로 필요한 개수만 남긴다 (배치 묶음 순서 → 남쪽 줄부터 → 같은 줄은 서쪽부터)
+    var maxTableCount = allTables.length;
+    var maxCapacityKw = maxTableCount * spec.stack * spec.watt / 1000;
+    var target = currentTarget(), targetInfo = null;
+    if(target){
+      var kwPerTable = spec.stack * spec.watt / 1000;
+      var need = target.over ? Math.ceil(target.kw / kwPerTable - 1e-9) : Math.floor(target.kw / kwPerTable + 1e-9);
+      need = Math.max(0, need);
+      targetInfo = { kw: target.kw, over: target.over, short: need > maxTableCount, tooSmall: need === 0, kwPerTable: kwPerTable };
+      if(need < maxTableCount){
+        allTables.sort(function(a, b){
+          if(a.g !== b.g) return a.g - b.g;
+          var ya = Math.round(a.y0 * 1000), yb = Math.round(b.y0 * 1000);
+          return ya !== yb ? ya - yb : a.x0 - b.x0;
+        });
+        allTables = allTables.slice(0, need);
+        state.parcels.forEach(function(p){ p.layoutTables = 0; });
+        allTables.forEach(function(t){ var o = groups[t.g].owner; if(o) o.layoutTables++; });
+      }
+    }
     renderParcelLayoutTable(perParcel, globalAz, spec);
 
     var tableCount = allTables.length;
@@ -1741,6 +1808,7 @@ a{color:var(--accent);}
     document.getElementById('resModulesLayout').textContent = fmt(layoutModules,0) + ' 매';
     document.getElementById('resModulesArea').textContent = fmt(areaBasedModules,0) + ' 매';
     document.getElementById('resCapacity').textContent = fmt(capacityKw,1) + ' kWp';
+    document.getElementById('resCapacityLbl').textContent = targetInfo ? ('배치 용량 (목표 ' + fmt(targetInfo.kw,1) + 'kW)') : '예상 최대 용량';
     document.getElementById('resGrid').textContent = fmt(tableCount,0) + '개 × ' + spec.stack + '단';
     document.getElementById('resGcr').textContent = fmt(gcrPct,1) + '%' + (spec.isAgri ? (gcrPct>30.5?' (30% 초과 — 확인필요)':' (30% 이내)') : '');
 
@@ -1759,11 +1827,21 @@ a{color:var(--accent);}
       (globalAz !== 0 || perParcel ? '행간은 정남 기준으로 계산해 방향을 틀어도 그늘 여유가 줄지 않도록 했습니다. ' : '') +
       '설계 기준: 위도 ' + lat.toFixed(2) + '°N 동지 태양고도 ' + sunAltDeg.toFixed(1) + '°에서 앞줄 그늘이 뒷줄에 닿지 않도록 행간(pitch) ' + pitch.toFixed(2) + 'm 적용(경사각이 커질수록 그늘이 길어져 행간도 늘어납니다). 각 테이블(' + (portrait ? '세로형' : '가로형') + ', 가로 ' + rowLenM.toFixed(2) + 'm × 세로 ' + tableDepth.toFixed(2) + 'm, ' + spec.stack + '단 모듈 ' + spec.stack + '매 탑재)가 필지 경계에서 이격거리만큼 떨어져 있는지 하나씩 검사해 배치했습니다(필지 경계선이 서로 붙어있으면 그 경계를 넘어서도 배치됩니다). 경계 이격 = ' + setbackCalc + '. 면적기준 참고치는 가용면적비율 ' + spec.usableRatioPct + '%만 적용한 단순 상한값입니다.' +
       (spec.isAgri ? ' 영농형 태양광은 1단 고정 + 차광률(GCR) 30% 이내를 만족하도록 행간을 자동으로 넓혀 계산했습니다(현재 ' + gcrPct.toFixed(1) + '%).' : '');
+    if(document.getElementById('capacityMode').value === 'target'){
+      var tNote;
+      if(!targetInfo) tNote = '🎯 목표 용량(kW)을 입력하면 그 용량만큼만 배치합니다. 지금은 최대 용량으로 표시하고 있어요.';
+      else if(targetInfo.short) tNote = '⚠ 목표 ' + fmt(targetInfo.kw,1) + 'kW는 이 부지에 들어가는 최대 용량(' + fmt(maxCapacityKw,1) + 'kWp)보다 커서, 최대 용량으로 배치했습니다.';
+      else if(targetInfo.tooSmall) tNote = '⚠ 목표 ' + fmt(targetInfo.kw,1) + 'kW가 테이블 1개 용량(' + fmt(targetInfo.kwPerTable,2) + 'kW)보다 작아 배치할 수 없습니다. "목표를 채우도록 (이상)"을 고르거나 목표를 늘려 주세요.';
+      else tNote = '🎯 목표 용량 ' + fmt(targetInfo.kw,1) + 'kW에 맞춰 최대 ' + fmt(maxCapacityKw,1) + 'kWp(테이블 ' + fmt(maxTableCount,0) + '개) 중 테이블 ' + fmt(tableCount,0) + '개(' + fmt(layoutModules,0) + '매, ' + fmt(capacityKw,2) + 'kWp)만 배치했습니다' +
+        (targetInfo.over ? '(목표를 채우는 가장 작은 용량). ' : '(목표를 넘지 않는 가장 큰 용량). ') +
+        '테이블(모듈 ' + spec.stack + '매) 단위로 맞추므로 목표와 조금 다를 수 있어요. 남쪽 줄부터, 같은 줄은 서쪽부터 채웠습니다' + (groups.length > 1 ? '(' + (spec.isRoof ? '건물' : '필지') + ' 순서대로)' : '') + '. CAD 배치도·엑셀 견적·경제성도 이 용량으로 계산됩니다.';
+      note.textContent = tNote + ' ' + note.textContent;
+    }
 
     state.lastLayout = { tables: allTables, groups: groups, spec: spec, pitch: pitch, tableDepth: tableDepth,
       rowLenM: rowLenM, slopeLenM: slopeLenM, portrait: portrait, capacityKw: capacityKw, gcrPct: gcrPct,
       globalAz: globalAz, perParcel: perParcel, roofPitched: roofPitched, sunAltDeg: sunAltDeg,
-      setbackCalc: setbackCalc };
+      setbackCalc: setbackCalc, targetKw: targetInfo ? targetInfo.kw : null, maxCapacityKw: maxCapacityKw };
     updateMapModules();
     updateEconomics(capacityKw);
   }
@@ -1986,7 +2064,7 @@ a{color:var(--accent);}
     var d = new X.DxfWriter();
     d.setUnits(X.Units.Millimeters);
     var st = d.document.tables.addStyle('KOR'); st.fontFileName = 'malgun.ttf';
-    [['PV_SATELLITE',8],['PV_PARCEL',1],['PV_BUILDING',4],['PV_ARRAY',5],['PV_MODULE',150],['PV_TEXT',7],['PV_DIM',3],['도곽',7],['도곽_문자',7]]
+    [['PV_SATELLITE',8],['PV_SAT_REF',2],['PV_PARCEL',1],['PV_BUILDING',4],['PV_ARRAY',5],['PV_MODULE',150],['PV_TEXT',7],['PV_DIM',3],['도곽',7],['도곽_문자',7]]
       .forEach(function(l){ d.addLayer(l[0], l[1], 'CONTINUOUS'); });
     function v2(p){ return { point: X.point2d(p[0], p[1]) }; }
     function poly(layer, pts, closed, color){
@@ -2009,6 +2087,20 @@ a{color:var(--accent);}
       var a0 = F(FRAME_DRAW_AREA.x0, FRAME_DRAW_AREA.y0);
       var wMm = (FRAME_DRAW_AREA.x1 - FRAME_DRAW_AREA.x0) * S;
       d.addImage(imgName, 'SATELLITE', X.point3d(a0[0], a0[1], 0), sat.w, sat.h, wMm, 0, { layerName:'PV_SATELLITE' });
+      // 위성사진 기준 표시 (노란색 PV_SAT_REF 레이어) — 사진이 안 보일 때 손으로 붙이는 기준
+      //   사진 외곽 사각형 + 왼쪽 아래 기준점 십자, 그리고 용지 아래에 붙이는 방법(삽입점·축척·회전)
+      var hMm = wMm * sat.h / sat.w, a1 = [a0[0] + wMm, a0[1] + hMm], k = 4 * S;
+      poly('PV_SAT_REF', [a0, [a1[0], a0[1]], a1, [a0[0], a1[1]]], true);
+      d.addLine(X.point3d(a0[0] - k, a0[1], 0), X.point3d(a0[0] + k, a0[1], 0), { layerName:'PV_SAT_REF' });
+      d.addLine(X.point3d(a0[0], a0[1] - k, 0), X.point3d(a0[0], a0[1] + k, 0), { layerName:'PV_SAT_REF' });
+      d.addCircle(X.point3d(a0[0], a0[1], 0), 1.5 * S, { layerName:'PV_SAT_REF' });
+      var refX = a0[0].toFixed(1), refY = a0[1].toFixed(1), refW = wMm.toFixed(1);
+      text('PV_SAT_REF', [a0[0] + 2.5*S, a0[1] + 2*S], 2*S, '위성사진 기준점(왼쪽 아래) X=' + refX + ', Y=' + refY, 7);
+      sat.ref = { x: refX, y: refY, w: refW, h: hMm.toFixed(1) };
+      ['[위성사진 붙이는 기준] 사진이 안 보이면: IMAGEATTACH(이미지 부착) → ' + imgName + ' 선택',
+       '→ 삽입점 X=' + refX + ', Y=' + refY + ' (노란 십자) / 축척 ' + refW + ' (사진 가로 길이 mm) / 회전 0',
+       '→ 사진이 노란 사각형(가로 ' + refW + ' × 세로 ' + hMm.toFixed(1) + ' mm)에 딱 맞으면 정확합니다. 단위 mm, 정북이 위쪽.'
+      ].forEach(function(line, i){ text('PV_SAT_REF', F(FRAME_DRAW_AREA.x0, -8 - i * 6), 3.2 * S, line, 7); });
     }
     // 2) 필지 경계 + 지번
     state.parcels.forEach(function(p){
@@ -2116,12 +2208,34 @@ a{color:var(--accent);}
     var m0x = rect.minX + (plan.fx + A.x0*S) / 1000, m0y = rect.minY + (plan.fy + A.y0*S) / 1000;
     var m1x = rect.minX + (plan.fx + A.x1*S) / 1000, m1y = rect.minY + (plan.fy + A.y1*S) / 1000;
     Promise.all([loadDxfLib(), captureSatellite(m0x, m0y, m1x, m1y, 3000)]).then(function(r){
-      var X = r[0], sat = r[1], imgName = base + '_위성사진.png';
+      // 사진 파일 이름은 영문·숫자만 (한글 경로를 못 찾는 CAD가 있어서)
+      var pnu = state.parcels.length ? String(state.parcels[0].pnu || '').replace(/\D/g, '') : '';
+      var X = r[0], sat = r[1], imgName = 'SAT_' + (pnu || 'site') + '_' + todayStr('') + '.png';
       var dxf = buildLayoutDxf(X, plan, sat, imgName);
       var dxfBytes = new TextEncoder().encode(dxf);
       if(sat){
-        downloadBlob(makeZip([{ name: base + '.dxf', data: dxfBytes }, { name: imgName, data: sat.png }]), base + '.zip');
-        exportStatus('배치도(.zip)를 내려받았습니다 — 압축을 푼 폴더에서 .dxf를 열면 위성사진이 함께 보입니다. 축척 1:' + S + ' (A3)');
+        var guide = [
+          '[위성사진이 함께 보이게 여는 법]',
+          '1. 이 zip 파일을 먼저 "압축 풀기" 하세요. (zip 안에서 바로 .dxf를 열면 사진을 못 찾습니다)',
+          '2. 풀린 폴더에서 ' + base + '.dxf 를 여세요. 사진(' + imgName + ')은 .dxf와 같은 폴더에 두고 이름을 바꾸지 마세요.',
+          '   → 사진이 자동으로 제자리(같은 축척)에 깔립니다.',
+          '',
+          '[사진이 안 보이거나 위치가 어긋날 때 — 손으로 붙이기]',
+          '도면의 노란색(PV_SAT_REF 레이어) 사각형이 사진이 들어갈 자리, 왼쪽 아래 노란 십자가 기준점입니다.',
+          '1. 명령어 IMAGEATTACH (또는 메뉴 삽입 → 이미지/래스터 부착)',
+          '2. 파일: ' + imgName,
+          '3. 삽입점: X=' + sat.ref.x + ', Y=' + sat.ref.y + '  (노란 십자를 클릭해도 됩니다)',
+          '4. 축척: ' + sat.ref.w + '   (사진 가로 길이, mm)',
+          '5. 회전: 0',
+          '→ 사진이 노란 사각형(가로 ' + sat.ref.w + ' × 세로 ' + sat.ref.h + ' mm)에 딱 맞으면 정확한 위치입니다.',
+          '   이미 사진이 깔려 있는데 어긋나 있으면, 그 사진을 지우고 위 순서로 다시 붙이세요.',
+          '',
+          '도면 기준: 단위 mm, 정북이 위쪽, 축척 1:' + S + ' (A3). 도면 원점(0,0)은 필지들을 감싸는 사각형의 왼쪽 아래 모서리입니다.',
+          '노란 표시는 인쇄 전에 PV_SAT_REF 레이어를 끄면 됩니다.'
+        ].join('\r\n');
+        var guideBytes = new TextEncoder().encode('\ufeff' + guide);
+        downloadBlob(makeZip([{ name: base + '.dxf', data: dxfBytes }, { name: imgName, data: sat.png }, { name: '읽어주세요_위성사진_맞추기.txt', data: guideBytes }]), base + '.zip');
+        exportStatus('배치도(.zip)를 내려받았습니다 — 꼭 압축을 먼저 풀고, 풀린 폴더에서 .dxf를 여세요(위성사진이 자동으로 깔림). 사진이 안 보이면 zip 안 "읽어주세요" 파일대로 노란 기준점에 붙이면 됩니다. 축척 1:' + S + ' (A3)');
       } else {
         downloadBlob(new Blob([dxfBytes], { type:'application/dxf' }), base + '.dxf');
         exportStatus('배치도(.dxf)를 내려받았습니다. 축척 1:' + S + ' (A3). 위성사진은 브이월드에서 받지 못해 넣지 못했습니다.');
@@ -2264,7 +2378,7 @@ a{color:var(--accent);}
       ['모듈 매수', fmt(sum.modules, 0) + ' 매'],
       ['테이블 수', fmt(sum.tables, 0) + ' 개'],
       ['어레이(구조물 줄) 수', fmt(sum.arrays.length, 0) + ' 열,  총 길이 ' + fmt(sum.arrayLenM, 1) + ' m'],
-      ['설비용량', fmt(sum.capacityKw, 2) + ' kWp'],
+      ['설비용량', fmt(sum.capacityKw, 2) + ' kWp' + (ll.targetKw ? '  (목표 ' + fmt(ll.targetKw, 1) + 'kW 기준 배치 · 부지 최대 ' + fmt(ll.maxCapacityKw, 1) + 'kWp)' : '  (부지 최대 용량)')],
       ['100kW 단위 수량', fmt(sum.capacityKw / 100, 3) + '  (100kW 블록 ' + Math.ceil(sum.capacityKw / 100 - 1e-9) + '개)'],
       ['견적 수량 규칙', '모듈 = 배치 매수 / 인버터(100kVA) = 100kW당 1대 / 말뚝 = 100kW당 50본' + (spec.isRoof ? '(지붕형은 제외)' : '') + ' / 기초장비 = 1MW당 5회 / 구조물·전기 = kW / 감리·사용전검사·분전반 = MW / 장비 = 1MW당 50·40·30대 / 측량 = 필지 면적']
     ];
