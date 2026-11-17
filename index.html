@@ -2566,7 +2566,9 @@ a{color:var(--accent);}
     var btn = this; btn.disabled = true;
     exportStatus('배치도를 만드는 중… (위성사진을 받는 데 몇 초 걸릴 수 있어요)');
     var name = state.parcels.length ? shortParcelName(state.parcels[0]) : '부지';
-    var base = '태양광배치도_' + safeFileName(name) + '_' + todayStr('');
+    // 받을 때마다 다른 이름(시각 포함) — 도면·사진 이름이 같으면 다른 때 받은 파일끼리 섞여서 사진이 어긋나 보임
+    var now = new Date(), hms = String(now.getHours()).padStart(2,'0') + String(now.getMinutes()).padStart(2,'0') + String(now.getSeconds()).padStart(2,'0');
+    var base = '태양광배치도_' + safeFileName(name) + '_' + todayStr('') + '_' + hms;
     var plan = drawingPlan(), rect = state.combined.rect;
     // 그리는 칸 전체(도면 좌표) → 현장 좌표(m)
     var A = FRAME_DRAW_AREA, S = plan.scale;
@@ -2576,7 +2578,6 @@ a{color:var(--accent);}
       // 사진 파일 이름은 영문·숫자만 (한글 경로를 못 찾는 CAD가 있어서)
       var pnu = state.parcels.length ? String(state.parcels[0].pnu || '').replace(/\D/g, '') : '';
       // 받을 때마다 다른 이름(시각 포함) — 같은 폴더에 예전 사진이 남아 있으면 CAD가 그 사진을 잘못 붙이는 일을 막음
-      var now = new Date(), hms = String(now.getHours()).padStart(2,'0') + String(now.getMinutes()).padStart(2,'0') + String(now.getSeconds()).padStart(2,'0');
       var X = r[0], sat = r[1], imgName = 'SAT_' + (pnu || 'site') + '_' + todayStr('') + '_' + hms + '.png';
       var dxf = buildLayoutDxf(X, plan, sat, imgName);
       var dxfBytes = new TextEncoder().encode(dxf);
