@@ -53,7 +53,8 @@
   - 회사 가배치도 양식(KLES A3 도곽·표제란·NOTE·방위표)을 `KLES_FRAME`(용지 mm 좌표)으로 넣어 두고, 축척 S(표준 축척 중 A3 그리는 칸 300×172mm에 들어가는 값)로 키워 배치. 바꾸는 칸: 축척(1:S)·날짜·제목(○○ 가배치도)·주소(○○ 외 N필지)·NOTE(모듈·각도·용량·차광률·경계 이격).
   - 위성사진: 브이월드 위성 타일을 이어 붙여 그리는 칸 크기 PNG로 만들고 IMAGE로 넣음 → .dxf+.png를 .zip으로. 타일을 못 받으면(CORS 등) 위성사진 없이 .dxf만.
   - 라이브러리 버그 보정: IMAGEDEF_REACTOR 주인 핸들이 0으로 나와서 IMAGE 핸들로 바꿔 씀.
-  - 레이어: PV_SATELLITE · PV_PARCEL · PV_BUILDING · PV_ARRAY(A번호) · PV_MODULE · PV_TEXT · PV_DIM(축척 막대) · 도곽 · 도곽_문자
+  - 위성사진 기준 표시: PV_SAT_REF(노란색) 레이어에 사진 외곽 사각형·왼쪽 아래 기준점 십자·삽입점/축척 글자. zip 안에 "읽어주세요_위성사진_맞추기.txt"(압축 풀고 열기, 안 보이면 IMAGEATTACH 삽입점·축척=사진 가로 mm·회전 0). 사진 파일 이름은 영문·숫자(`SAT_<PNU>_<날짜>.png`).
+  - 레이어: PV_SATELLITE · PV_SAT_REF · PV_PARCEL · PV_BUILDING · PV_ARRAY(A번호) · PV_MODULE · PV_TEXT · PV_DIM(축척 막대) · 도곽 · 도곽_문자
 - 상세견적 엑셀(.xlsx): ExcelJS 4.4.0을 버튼 누를 때만 불러옵니다(cdnjs → jsdelivr 순).
   - 사용자 회사 양식(KLES 산출내역서, 1MW 기준)을 `ESTIMATE_TEMPLATE_B64`(base64)로 코드 안에 넣어 두고 `fillEstimateTemplate()`에서 수량·규격 칸만 채웁니다. 단가·제비율·수식·로고는 양식 그대로입니다.
   - 시트: 견적서(상세) · 공사비 집계표 · 공사비 내역서 (양식) + 물량산출 (자동 추가). 배치도 그림·노임단가·건축제비율 시트는 넣지 않음(사용자 요청).
